@@ -1,0 +1,824 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="theme-color" content="#08090d">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Today">
+<title>Today</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%23604CFF'/%3E%3Cstop offset='1' stop-color='%2312A8A8'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='64' height='64' rx='15' fill='url(%23g)'/%3E%3Cpath d='M18 33l9 9 19-21' fill='none' stroke='white' stroke-width='6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+<style>
+  :root {
+    --bg:        #08090d;
+    /* RGB triples so gradients can fade to alpha 0 of the same hue
+       (fading to `transparent` interpolates through black and fringes). */
+    --blob-a:    96, 76, 255;
+    --blob-b:    18, 168, 168;
+    --blob-c:    198, 58, 148;
+    --blob-d:    40, 130, 255;
+    --blob-e:    32, 190, 132;
+    --blob-f:    236, 140, 62;
+    --card:      rgba(255,255,255,.045);
+    --card-line: rgba(255,255,255,.10);
+    --well:      rgba(255,255,255,.03);
+    --text:      rgba(255,255,255,.94);
+    --muted:     rgba(255,255,255,.44);
+    --faint:     rgba(255,255,255,.14);
+    --accent:    rgba(255,255,255,.92);
+    --urgent:    #ff6f61;
+    --on-urgent: #14060a;
+    --grain:     .045;
+  }
+  html[data-theme="light"] {
+    --bg:        #f2f1ee;
+    --blob-a:    138, 124, 255;
+    --blob-b:    79, 199, 199;
+    --blob-c:    255, 158, 203;
+    --blob-d:    132, 176, 255;
+    --blob-e:    124, 222, 178;
+    --blob-f:    255, 196, 132;
+    --card:      rgba(255,255,255,.55);
+    --card-line: rgba(0,0,0,.07);
+    --well:      rgba(255,255,255,.30);
+    --text:      rgba(20,20,26,.92);
+    --muted:     rgba(20,20,26,.42);
+    --faint:     rgba(20,20,26,.13);
+    --accent:    rgba(20,20,26,.88);
+    --urgent:    #dc4c39;
+    --on-urgent: #fff;
+    --grain:     .03;
+  }
+
+  * { margin:0; padding:0; box-sizing:border-box; }
+  html, body { height:100%; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: "Inter", -apple-system, "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif;
+    font-size: 15px;
+    -webkit-font-smoothing: antialiased;
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background .6s ease, color .6s ease;
+  }
+
+  /* ─── fancy background ──────────────────────────────
+     Soft radial gradients instead of blur(): identical look, but the GPU
+     paints each blob once and then only moves the layer. No per-frame
+     re-blur, which is what made typing stutter. */
+  .bg {
+    position:fixed; inset:0; z-index:0; pointer-events:none; overflow:hidden; contain: layout paint;
+    /* Chrome animates `filter` on the compositor, same as transform and
+       opacity — so sweeping the whole palette through the spectrum costs
+       no repaint. This is what actually reads as "live". */
+    animation: hue 26s linear infinite;
+    will-change: filter;
+  }
+  /* Saturation and brightness are pinned down in every keyframe so the sweep
+     travels through hues without ever hitting a vivid one. */
+  @keyframes hue {
+    from { filter: hue-rotate(0deg)   saturate(.66) brightness(.94); }
+    to   { filter: hue-rotate(360deg) saturate(.66) brightness(.94); }
+  }
+  /* the light theme wants pale, not dark — don't pull its brightness down */
+  @keyframes hueLight {
+    from { filter: hue-rotate(0deg)   saturate(.58) brightness(1.02); }
+    to   { filter: hue-rotate(360deg) saturate(.58) brightness(1.02); }
+  }
+  html[data-theme="light"] .bg { animation-name: hueLight; }
+  .blob {
+    position:absolute; border-radius:50%;
+    /* transform + opacity are the only properties the compositor animates
+       without repainting — the colour shift rides entirely on opacity. */
+    will-change: transform, opacity;
+    transform: translateZ(0);
+  }
+
+  .b1 {
+    width:82vw; height:82vw; top:-26%; left:-20%;
+    background: radial-gradient(closest-side, rgba(var(--blob-a),.50), rgba(var(--blob-a),.24) 46%, rgba(var(--blob-a),0) 78%);
+    animation: drift1 34s ease-in-out infinite, breatheA 20s ease-in-out infinite;
+  }
+  .b2 {
+    width:72vw; height:72vw; top:14%; left:36%;
+    background: radial-gradient(closest-side, rgba(var(--blob-b),.45), rgba(var(--blob-b),.21) 46%, rgba(var(--blob-b),0) 78%);
+    animation: drift2 42s ease-in-out infinite, breatheB 24s ease-in-out infinite;
+  }
+  .b3 {
+    width:66vw; height:66vw; top:46%; left:-10%;
+    background: radial-gradient(closest-side, rgba(var(--blob-c),.42), rgba(var(--blob-c),.20) 46%, rgba(var(--blob-c),0) 78%);
+    animation: drift3 50s ease-in-out infinite, breatheC 28s ease-in-out infinite;
+  }
+  /* second colour set — fades across the first on its own rhythm, so the
+     palette on screen is always a different mix */
+  .b4 {
+    width:76vw; height:76vw; top:30%; left:-28%;
+    background: radial-gradient(closest-side, rgba(var(--blob-d),.45), rgba(var(--blob-d),.21) 46%, rgba(var(--blob-d),0) 78%);
+    animation: drift4 38s ease-in-out infinite, breatheB 32s ease-in-out infinite -12s;
+  }
+  .b5 {
+    width:68vw; height:68vw; top:-22%; left:44%;
+    background: radial-gradient(closest-side, rgba(var(--blob-e),.42), rgba(var(--blob-e),.20) 46%, rgba(var(--blob-e),0) 78%);
+    animation: drift2 46s ease-in-out infinite -9s, breatheC 36s ease-in-out infinite -25s;
+  }
+  .b6 {
+    width:72vw; height:72vw; top:52%; left:26%;
+    background: radial-gradient(closest-side, rgba(var(--blob-f),.38), rgba(var(--blob-f),.18) 46%, rgba(var(--blob-f),0) 78%);
+    animation: drift4 58s ease-in-out infinite -20s, breatheA 42s ease-in-out infinite -40s;
+  }
+
+  @keyframes drift1 {
+    0%,100% { transform: translate3d(0,0,0) scale(1); }
+    33%     { transform: translate3d(16vw, 10vh, 0) scale(1.14); }
+    66%     { transform: translate3d(5vw, -8vh, 0) scale(.92); }
+  }
+  @keyframes drift2 {
+    0%,100% { transform: translate3d(0,0,0) scale(1); }
+    40%     { transform: translate3d(-18vw, -12vh, 0) scale(1.10); }
+    70%     { transform: translate3d(-6vw, 9vh, 0) scale(.95); }
+  }
+  @keyframes drift3 {
+    0%,100% { transform: translate3d(0,0,0) scale(1); }
+    50%     { transform: translate3d(20vw, -13vh, 0) scale(1.16); }
+  }
+  @keyframes drift4 {
+    0%,100% { transform: translate3d(0,0,0) scale(1); }
+    35%     { transform: translate3d(14vw, -11vh, 0) scale(1.12); }
+    72%     { transform: translate3d(-12vw, 12vh, 0) scale(.93); }
+  }
+
+  /* Each blob fades on its own long, mutually-unrelated cycle. The hues
+     never all peak together, so the mix on screen keeps changing. */
+  @keyframes breatheA { 0%,100% { opacity:1; }   50% { opacity:.08; } }
+  @keyframes breatheB { 0%,100% { opacity:.10; } 50% { opacity:1; } }
+  @keyframes breatheC { 0%,100% { opacity:.95; } 38% { opacity:.06; } 71% { opacity:1; } }
+
+  .grain {
+    position:fixed; inset:0; z-index:1; pointer-events:none;
+    opacity: var(--grain);
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='220' height='220'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+  .vignette {
+    position:fixed; inset:0; z-index:1; pointer-events:none;
+    background: radial-gradient(ellipse at 50% 45%, transparent 40%, rgba(0,0,0,.38) 100%);
+  }
+  html[data-theme="light"] .vignette { background: radial-gradient(ellipse at 50% 45%, transparent 45%, rgba(0,0,0,.10) 100%); }
+
+  /* ─── card ─────────────────────────────────────────── */
+  .app {
+    position:relative; z-index:2;
+    width: min(880px, 94vw);
+    height: min(760px, 90vh);
+    display:flex; flex-direction:column;
+    padding: 32px 32px 20px;
+    border-radius: 22px;
+    background: var(--card);
+    border: 1px solid var(--card-line);
+    /* Smaller radius than it looks like it needs — blur cost scales with
+       radius, and the backdrop is already soft gradients. */
+    backdrop-filter: blur(16px) saturate(112%);
+    -webkit-backdrop-filter: blur(16px) saturate(112%);
+    box-shadow: 0 24px 70px rgba(0,0,0,.34);
+    animation: rise .7s cubic-bezier(.2,.8,.2,1) both;
+  }
+  @keyframes rise { from { opacity:0; transform: translateY(14px); } to { opacity:1; transform:none; } }
+
+  header { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; margin-bottom:22px; }
+  h1 { font-size: 26px; font-weight: 500; letter-spacing:-.02em; line-height:1.15; }
+  .date { margin-top:5px; font-size:12px; letter-spacing:.14em; text-transform:uppercase; color: var(--muted); }
+
+  .actions { flex:none; display:flex; align-items:center; gap:8px; }
+
+  .theme, .refresh {
+    flex:none; width:30px; height:30px; border-radius:50%;
+    border:1px solid var(--card-line); background:transparent; color:var(--muted);
+    cursor:pointer; display:grid; place-items:center;
+    transition: color .2s, border-color .2s, transform .3s;
+  }
+  .theme:hover, .refresh:hover { color:var(--text); border-color:var(--faint); }
+  .theme:hover { transform: rotate(25deg); }
+  .refresh:hover { transform: rotate(-180deg); }
+  .refresh:active { transform: rotate(-360deg); }
+  .theme svg, .refresh svg { width:14px; height:14px; }
+
+  /* ─── entry row ────────────────────────────────────── */
+  .entry {
+    display:flex; align-items:center; gap:11px;
+    border-bottom:1px solid var(--card-line);
+    transition: border-color .3s;
+  }
+  .entry:focus-within { border-color: var(--faint); }
+  .entry input {
+    flex:1; min-width:0; background:transparent; border:none; outline:none;
+    color:var(--text); font:inherit; font-size:16px;
+    padding: 12px 0 14px;
+  }
+  .entry input::placeholder { color:var(--muted); }
+
+  /* the urgency toggle keeps its ring — it's a state, and the ring is what
+     shows on vs. off at a glance */
+  .urg {
+    flex:none; width:24px; height:24px; border-radius:50%; padding:0;
+    border:1px solid var(--faint); background:transparent; color:var(--muted);
+    cursor:pointer; display:grid; place-items:center;
+    font-size:12px; font-weight:600; line-height:1;
+    transition: color .2s, border-color .2s, background .2s, transform .2s;
+  }
+  .urg:hover { color:var(--text); border-color:var(--muted); transform: scale(1.1); }
+  .urg:active { transform: scale(.94); }
+  /* armed = the next task goes straight to Urgent */
+  .entry.armed .urg { background: var(--urgent); border-color: var(--urgent); color: var(--on-urgent); }
+  .entry.armed input::placeholder { color: var(--urgent); opacity:.75; }
+
+  /* ─── columns ──────────────────────────────────────── */
+  .cols {
+    flex:1; min-height:0; margin-top:16px;
+    display:grid; grid-template-columns: 1fr 1fr; gap:14px;
+  }
+  .col {
+    display:flex; flex-direction:column; min-height:0;
+    border:1px solid var(--card-line); border-radius:14px;
+    background: var(--well);
+    padding: 12px 8px 6px;
+    transition: border-color .2s, background .2s;
+  }
+  .col.over { border-color: var(--faint); background: rgba(127,127,127,.09); }
+
+  .col-head {
+    display:flex; align-items:center; gap:8px;
+    padding: 0 10px 10px;
+    font-size:11px; letter-spacing:.14em; text-transform:uppercase; color: var(--muted);
+  }
+  .dot { width:6px; height:6px; border-radius:50%; background: var(--muted); flex:none; }
+  .col.hot .dot { background: var(--urgent); }
+  .col.hot .col-head { color: var(--urgent); }
+  .col-head .n { margin-left:auto; letter-spacing:.06em; opacity:.8; }
+
+  .list { flex:1; overflow-y:auto; list-style:none; padding: 0 2px; }
+  .list::-webkit-scrollbar { width:5px; }
+  .list::-webkit-scrollbar-thumb { background: var(--faint); border-radius:10px; }
+  .list::-webkit-scrollbar-track { background:transparent; }
+
+  li {
+    display:flex; align-items:center; gap:11px;
+    padding: 10px 8px; border-radius:10px;
+    animation: pop .32s cubic-bezier(.2,.9,.25,1) both;
+    transition: background .2s, opacity .3s;
+  }
+  li:hover { background: rgba(127,127,127,.08); }
+  li.dragging { opacity:.35; }
+  @keyframes pop { from { opacity:0; transform: translateY(-6px); } to { opacity:1; transform:none; } }
+
+  .tick {
+    flex:none; width:17px; height:17px; border-radius:50%;
+    border:1.5px solid var(--faint); cursor:pointer;
+    display:grid; place-items:center;
+    transition: border-color .2s, background .2s, transform .15s;
+  }
+  .tick:hover { border-color: var(--muted); transform: scale(1.12); }
+  .tick svg { width:9px; height:9px; opacity:0; transform: scale(.5); transition: all .2s; stroke: var(--bg); }
+  li.done .tick { background: var(--accent); border-color: var(--accent); }
+  li.done .tick svg { opacity:1; transform: none; }
+  .col.hot li:not(.done) .tick { border-color: rgba(255,111,97,.55); }
+
+  .txt { flex:1; line-height:1.45; word-break:break-word; transition: color .3s; }
+  li.done .txt { color: var(--muted); text-decoration: line-through; text-decoration-thickness:1px; }
+
+  /* shown on tasks rolled over from an earlier day */
+  .carried {
+    flex:none; font-size:10px; letter-spacing:.09em; text-transform:uppercase;
+    color: var(--muted); border:1px solid var(--card-line);
+    padding: 2px 6px; border-radius: 20px; white-space:nowrap;
+  }
+  li.done .carried { opacity:.5; }
+
+  .move, .kill {
+    flex:none; border:none; background:transparent; color:var(--faint);
+    cursor:pointer; line-height:1; padding:2px 3px;
+    opacity:0; transition: opacity .2s, color .2s;
+  }
+  .move { font-size:14px; }
+  .kill { font-size:17px; }
+  li:hover .move, li:hover .kill { opacity:1; }
+  .move:hover, .kill:hover { color: var(--text); }
+
+  .empty {
+    padding: 26px 10px; text-align:center;
+    color:var(--muted); font-size:13px; letter-spacing:.02em;
+  }
+
+  /* ─── footer ───────────────────────────────────────── */
+  footer {
+    display:flex; align-items:center; justify-content:space-between; gap:12px;
+    margin-top:14px; padding-top:13px; border-top:1px solid var(--card-line);
+    font-size:12px; color: var(--muted);
+  }
+  .filters { display:flex; gap:4px; }
+  .filters button {
+    border:none; background:transparent; color:var(--muted); font:inherit;
+    cursor:pointer; padding:4px 9px; border-radius:6px; transition: color .2s, background .2s;
+  }
+  .filters button:hover { color: var(--text); }
+  .filters button.on { color: var(--text); background: rgba(127,127,127,.12); }
+  .clear { border:none; background:transparent; color:var(--muted); font:inherit; cursor:pointer; transition:color .2s; }
+  .clear:hover { color: var(--text); }
+  .clear[hidden] { visibility:hidden; display:block; }
+
+  @media (max-width: 700px) {
+    .cols { grid-template-columns: 1fr; }
+    .app { padding: 24px 22px 14px; }
+  }
+  @media (max-height: 620px) { .app { padding:22px 24px 14px; } header { margin-bottom:16px; } }
+
+  /* Reduced motion: drop the snappy UI entrance animations, but keep the
+     background drifting — just far slower. Set to `none` for a still image. */
+  @media (prefers-reduced-motion: reduce) {
+    .app, li { animation: none !important; }
+    /* two values per blob: drift, then colour breathe. The colour cycle is
+       slowed far less than the movement — drifting is what causes motion
+       discomfort, a slow hue shift doesn't. */
+    .b1 { animation-duration:  85s, 20s; }
+    .b2 { animation-duration: 105s, 24s; }
+    .b3 { animation-duration: 125s, 28s; }
+    .b4 { animation-duration:  95s, 32s; }
+    .b5 { animation-duration: 115s, 36s; }
+    .b6 { animation-duration: 145s, 42s; }
+    /* the hue sweep on .bg is intentionally left at full speed here */
+    .tick, .theme, .refresh, .urg { transition-duration: .01ms !important; }
+  }
+</style>
+<style>
+  /* ── phone build ─────────────────────────────────────────
+     Everything here is media-queried. On a desktop window none of it
+     applies, so the two-column card layout is exactly as it was. */
+  @media (max-width: 700px) {
+    .app {
+      width:100%; height:100%; max-width:100%; min-width:0;
+      border:none; border-radius:0; box-shadow:none;
+      padding: calc(18px + env(safe-area-inset-top)) 18px calc(10px + env(safe-area-inset-bottom));
+      backdrop-filter: blur(10px) saturate(112%);
+      -webkit-backdrop-filter: blur(10px) saturate(112%);
+    }
+    /* flex/grid children won't shrink below their content without these,
+       and a long task title would push the page wider than the screen */
+    .col, .list, li { min-width:0; }
+    .txt { min-width:0; overflow-wrap:anywhere; }
+    .cols { gap:12px; }
+    header { margin-bottom:16px; }
+    h1 { font-size:23px; }
+    .date { font-size:11px; }
+    .col.hot { order:-1; }        /* urgent on top when stacked */
+  }
+  /* No hover on touch, so hover-only controls would be invisible — and
+     HTML5 drag doesn't fire on touch, making these arrows the only way
+     to move a task between columns. */
+  @media (hover: none) {
+    .move, .kill { opacity:.6; padding:6px 8px; }
+    .move { font-size:17px; }
+    .kill { font-size:20px; }
+    li { padding:13px 8px; }
+    .tick { width:21px; height:21px; }
+    li:hover { background:transparent; }
+  }
+</style>
+</head>
+<body>
+
+<div class="bg">
+  <div class="blob b1"></div><div class="blob b2"></div><div class="blob b3"></div>
+  <div class="blob b4"></div><div class="blob b5"></div><div class="blob b6"></div>
+</div>
+<div class="grain"></div>
+<div class="vignette"></div>
+
+<main class="app">
+  <header>
+    <div>
+      <h1 id="greet">Today</h1>
+      <div class="date" id="date"></div>
+    </div>
+    <div class="actions">
+      <button class="refresh" id="refresh" title="Refresh" aria-label="Refresh">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/>
+        </svg>
+      </button>
+      <button class="theme" id="theme" title="Toggle theme" aria-label="Toggle theme">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+          <circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>
+        </svg>
+      </button>
+    </div>
+  </header>
+
+  <div class="entry" id="entry">
+    <input id="new" type="text" placeholder="What needs doing?" autocomplete="off"
+           spellcheck="false" maxlength="240" title="Enter to add · Shift+Enter to add as urgent">
+    <button class="urg" id="urg" title="Add the next task as urgent (or press Shift+Enter)" aria-label="Mark next task urgent">!</button>
+  </div>
+
+  <div class="cols">
+    <section class="col hot" id="col-urgent" data-urgent="1">
+      <div class="col-head"><span class="dot"></span>Urgent<span class="n" id="n-urgent">0</span></div>
+      <ul class="list" id="list-urgent"></ul>
+    </section>
+    <section class="col" id="col-later" data-urgent="0">
+      <div class="col-head"><span class="dot"></span>Not urgent<span class="n" id="n-later">0</span></div>
+      <ul class="list" id="list-later"></ul>
+    </section>
+  </div>
+
+  <footer>
+    <span id="count">0 left</span>
+    <div class="filters">
+      <button data-f="all" class="on">All</button>
+      <button data-f="active">Active</button>
+      <button data-f="done">Done</button>
+    </div>
+    <button class="clear" id="clear" hidden>Clear done</button>
+  </footer>
+</main>
+
+<script>
+(function () {
+  "use strict";
+
+  var KEY = "todo.items.v1", TKEY = "todo.theme.v1", DKEY = "todo.lastday.v1";
+  var items = load(), filter = "all", dragId = null, armed = false;
+
+  var $entry = document.getElementById("entry");
+  var $new   = document.getElementById("new");
+  var $urg   = document.getElementById("urg");
+  var $count = document.getElementById("count");
+  var $clear = document.getElementById("clear");
+
+  var lanes = [
+    { urgent: true,  col: document.getElementById("col-urgent"), list: document.getElementById("list-urgent"), n: document.getElementById("n-urgent") },
+    { urgent: false, col: document.getElementById("col-later"),  list: document.getElementById("list-later"),  n: document.getElementById("n-later")  }
+  ];
+  /* Bridge for sync.js. Kept deliberately tiny: read the list, replace the
+     list, and a callback fired whenever this device changes something. */
+  var bridge = window.__today = {
+    read:  function () { return items.slice(); },
+    write: function (next) {
+      bridge._quiet = true;          // don't report a remote change back as local
+      items = next; save(); render();
+      bridge._quiet = false;
+    },
+    onLocalChange: null,
+    _quiet: false
+  };
+
+  function load() {
+    try {
+      var raw = localStorage.getItem(KEY);
+      var parsed = raw ? JSON.parse(raw) : [];
+      return Array.isArray(parsed) ? parsed : [];
+    } catch (e) { return []; }
+  }
+  function save() {
+    try { localStorage.setItem(KEY, JSON.stringify(items)); } catch (e) {}
+    if (bridge.onLocalChange && !bridge._quiet) bridge.onLocalChange(items);
+  }
+
+  /* ── days ──
+     Local calendar date as YYYY-MM-DD. Deliberately not toISOString(),
+     which is UTC and would flip the day early or late depending on offset. */
+  function today() {
+    var d = new Date();
+    return d.getFullYear() + "-" +
+           String(d.getMonth() + 1).padStart(2, "0") + "-" +
+           String(d.getDate()).padStart(2, "0");
+  }
+
+  function daysOld(created) {
+    if (!created) return 0;
+    var a = new Date(created + "T00:00:00");
+    var b = new Date(today() + "T00:00:00");
+    if (isNaN(a)) return 0;
+    return Math.max(0, Math.round((b - a) / 86400000));
+  }
+
+  /* On a new day, finished tasks belong to the day they were finished and
+     drop off; anything unfinished rolls forward, keeping its original date
+     so it can show how long it's been carried. */
+  function rollover() {
+    var t = today(), last = null, dirty = false;
+    try { last = localStorage.getItem(DKEY); } catch (e) {}
+
+    items.forEach(function (x) {
+      if (!x.created) { x.created = last || t; dirty = true; }
+      if (typeof x.urgent !== "boolean") { x.urgent = false; dirty = true; }
+    });
+
+    if (last && last !== t) {
+      var before = items.length;
+      items = items.filter(function (x) { return !x.done; });
+      if (items.length !== before) dirty = true;
+    }
+
+    if (last !== t) { try { localStorage.setItem(DKEY, t); } catch (e) {} }
+    if (dirty) save();
+  }
+
+  /* ── header ──
+     Repainted on a timer too: this window tends to stay open for days. */
+  function paintHeader() {
+    var now = new Date(), h = now.getHours();
+    document.getElementById("greet").textContent =
+      h < 5 ? "Still up" : h < 12 ? "Good morning" : h < 18 ? "Good afternoon" : "Good evening";
+    document.getElementById("date").textContent =
+      now.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" });
+  }
+
+  /* ── theme ── */
+  var saved = null;
+  try { saved = localStorage.getItem(TKEY); } catch (e) {}
+  if (!saved && window.matchMedia && matchMedia("(prefers-color-scheme: light)").matches) saved = "light";
+  document.documentElement.dataset.theme = saved || "dark";
+  document.getElementById("theme").addEventListener("click", function () {
+    var next = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
+    document.documentElement.dataset.theme = next;
+    try { localStorage.setItem(TKEY, next); } catch (e) {}
+  });
+
+  /* Manual refresh. Re-reads the file from disk and re-renders from storage.
+     Any half-typed task is committed first by the pagehide handler below. */
+  document.getElementById("refresh").addEventListener("click", function () {
+    location.reload();
+  });
+
+  /* ── render ── */
+  function passesFilter(t) {
+    return filter === "all" || (filter === "done" ? t.done : !t.done);
+  }
+
+  function row(t) {
+    var li = document.createElement("li");
+    li.className = t.done ? "done" : "";
+    li.draggable = true;
+    li.dataset.id = t.id;
+
+    var tick = document.createElement("span");
+    tick.className = "tick";
+    tick.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>';
+    tick.addEventListener("click", function () { toggle(t.id); });
+
+    var txt = document.createElement("span");
+    txt.className = "txt";
+    txt.textContent = t.text;
+    txt.title = "Double-click to edit";
+    txt.addEventListener("dblclick", function () { edit(li, txt, t.id); });
+
+    li.append(tick, txt);
+
+    var age = daysOld(t.created);
+    if (age > 0) {
+      var badge = document.createElement("span");
+      badge.className = "carried";
+      badge.textContent = age + "d";
+      badge.title = age === 1 ? "Carried over from yesterday"
+                              : "Carried over for " + age + " days";
+      li.appendChild(badge);
+    }
+
+    var move = document.createElement("button");
+    move.className = "move";
+    move.textContent = t.urgent ? "→" : "←";
+    move.title = t.urgent ? "Move to Not urgent" : "Move to Urgent";
+    move.addEventListener("click", function () { setUrgent(t.id, !t.urgent); });
+
+    var kill = document.createElement("button");
+    kill.className = "kill";
+    kill.textContent = "×";
+    kill.title = "Delete";
+    kill.addEventListener("click", function () { remove(t.id); });
+
+    li.append(move, kill);
+    return li;
+  }
+
+  function render() {
+    lanes.forEach(function (lane) {
+      lane.list.textContent = "";
+      var mine = items.filter(function (t) { return !!t.urgent === lane.urgent; });
+      var shown = mine.filter(passesFilter);
+
+      shown.forEach(function (t) { lane.list.appendChild(row(t)); });
+
+      if (!shown.length) {
+        var p = document.createElement("div");
+        p.className = "empty";
+        p.textContent = mine.length
+          ? (filter === "done" ? "Nothing finished here." : "All clear.")
+          : (lane.urgent ? "Nothing urgent." : "Nothing here yet.");
+        lane.list.appendChild(p);
+      }
+
+      lane.n.textContent = mine.filter(function (t) { return !t.done; }).length;
+    });
+
+    var left = items.filter(function (t) { return !t.done; }).length;
+    $count.textContent = left + " left";
+    $clear.hidden = !items.some(function (t) { return t.done; });
+  }
+
+  /* ── actions ── */
+  function add(text, urgent) {
+    text = text.trim();
+    if (!text) return;
+    items.unshift({
+      id: Date.now() + "" + Math.round(Math.random() * 1e4),
+      text: text, done: false, created: today(), urgent: !!urgent
+    });
+    save(); render();
+  }
+  function toggle(id) {
+    items.forEach(function (t) { if (t.id === id) t.done = !t.done; });
+    save(); render();
+  }
+  function remove(id) {
+    items = items.filter(function (t) { return t.id !== id; });
+    save(); render();
+  }
+  function setUrgent(id, urgent) {
+    items.forEach(function (t) { if (t.id === id) t.urgent = urgent; });
+    save(); render();
+  }
+
+  function edit(li, txt, id) {
+    var input = document.createElement("input");
+    input.type = "text";
+    input.value = txt.textContent;
+    input.maxLength = 240;
+    input.style.cssText =
+      "flex:1;min-width:0;background:transparent;border:none;outline:none;color:inherit;font:inherit;padding:0";
+    li.replaceChild(input, txt);
+    li.draggable = false;
+    input.focus();
+    input.setSelectionRange(input.value.length, input.value.length);
+
+    var closed = false;
+    function commit(keep) {
+      if (closed) return;
+      closed = true;
+      if (keep) {
+        var v = input.value.trim();
+        if (v) { items.forEach(function (t) { if (t.id === id) t.text = v; }); save(); }
+      }
+      render();
+    }
+    input.addEventListener("blur", function () { commit(true); });
+    input.addEventListener("keydown", function (e) {
+      if (e.key === "Enter") commit(true);
+      if (e.key === "Escape") commit(false);
+      e.stopPropagation();
+    });
+  }
+
+  /* ── entry ── */
+  function submit(urgent, refocus) {
+    add($new.value, urgent);
+    $new.value = "";
+    if (armed) { armed = false; $entry.classList.remove("armed"); }
+    if (refocus !== false) $new.focus();
+  }
+
+  /* Enter isn't the only way out of the box — clicking away, alt-tabbing or
+     closing used to silently bin whatever was typed. Commit it instead. */
+  $new.addEventListener("blur", function () {
+    if ($new.value.trim()) submit(armed, false);
+  });
+
+  $urg.addEventListener("click", function () {
+    if ($new.value.trim()) { submit(true); return; }   // text waiting: just file it as urgent
+    armed = !armed;                                    // otherwise arm the next one
+    $entry.classList.toggle("armed", armed);
+    $new.focus();
+  });
+
+  $new.addEventListener("keydown", function (e) {
+    if (e.key === "Enter") submit(e.shiftKey || armed);
+    if (e.key === "Escape") {
+      if (armed) { armed = false; $entry.classList.remove("armed"); }
+      $new.blur();
+    }
+  });
+
+  /* Closing the window doesn't reliably fire blur — catch the text here too. */
+  window.addEventListener("pagehide", function () {
+    if ($new.value.trim()) { add($new.value, armed); $new.value = ""; }
+  });
+
+  /* ── filters ── */
+  document.querySelectorAll(".filters button").forEach(function (b) {
+    b.addEventListener("click", function () {
+      filter = b.dataset.f;
+      document.querySelectorAll(".filters button").forEach(function (x) { x.classList.toggle("on", x === b); });
+      render();
+    });
+  });
+
+  $clear.addEventListener("click", function () {
+    items = items.filter(function (t) { return !t.done; });
+    save(); render();
+  });
+
+  /* ── drag: reorder within a column, or drop across to change urgency ── */
+  function indexOfId(id) {
+    return items.findIndex(function (t) { return t.id === id; });
+  }
+
+  document.addEventListener("dragstart", function (e) {
+    var li = e.target.closest && e.target.closest("li[data-id]");
+    if (!li) return;
+    dragId = li.dataset.id;
+    li.classList.add("dragging");
+    e.dataTransfer.effectAllowed = "move";
+    try { e.dataTransfer.setData("text/plain", dragId); } catch (err) {}
+  });
+
+  document.addEventListener("dragend", function () {
+    dragId = null;
+    lanes.forEach(function (l) { l.col.classList.remove("over"); });
+    render();
+  });
+
+  lanes.forEach(function (lane) {
+    lane.col.addEventListener("dragover", function (e) {
+      if (!dragId) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = "move";
+      lane.col.classList.add("over");
+
+      var from = indexOfId(dragId);
+      if (from < 0) return;
+      var task = items[from];
+      var changed = false;
+
+      if (!!task.urgent !== lane.urgent) { task.urgent = lane.urgent; changed = true; }
+
+      var over = e.target.closest && e.target.closest("li[data-id]");
+      if (over && over.dataset.id !== dragId) {
+        var to = indexOfId(over.dataset.id);
+        if (to > -1 && to !== from) {
+          items.splice(to, 0, items.splice(from, 1)[0]);
+          changed = true;
+        }
+      }
+
+      if (changed) {
+        save(); render();
+        var moved = document.querySelector('li[data-id="' + dragId + '"]');
+        if (moved) moved.classList.add("dragging");
+      }
+    });
+
+    lane.col.addEventListener("dragleave", function (e) {
+      if (!lane.col.contains(e.relatedTarget)) lane.col.classList.remove("over");
+    });
+
+    lane.col.addEventListener("drop", function (e) {
+      e.preventDefault();
+      lane.col.classList.remove("over");
+    });
+  });
+
+  /* ── day watcher ──
+     The window stays open for days, so roll over at midnight too. */
+  function tick() {
+    var t = today(), last = null;
+    try { last = localStorage.getItem(DKEY); } catch (e) {}
+    paintHeader();
+    if (last !== t) { rollover(); render(); }
+  }
+  setInterval(tick, 30000);
+  window.addEventListener("focus", tick);
+  document.addEventListener("visibilitychange", function () { if (!document.hidden) tick(); });
+
+  /* ── go ── */
+  rollover();
+  paintHeader();
+  render();
+  window.addEventListener("load", function () { $new.focus(); });
+})();
+</script>
+<script src="firebase-config.js"></script>
+<script src="sync.js"></script>
+<script>
+  if ("serviceWorker" in navigator && location.protocol.indexOf("http") === 0) {
+    window.addEventListener("load", function () {
+      navigator.serviceWorker.register("sw.js").catch(function () {});
+    });
+  }
+</script>
+</body>
+</html>
