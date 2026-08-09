@@ -137,27 +137,54 @@
 
     authMod.setPersistence(auth, authMod.browserLocalPersistence).catch(function () {});
 
-    var TRIED = "todo.authtry";
+    /* Sign-in is popup-based and click-triggered, deliberately.
+
+       signInWithRedirect cannot work here: this app is served from
+       github.io while Firebase's auth handler lives on firebaseapp.com,
+       and browsers now partition storage across those two origins, so the
+       credential never makes it back — Google reports success and the app
+       stays signed out. A popup hands the credential back through
+       postMessage instead, which partitioning doesn't touch.
+
+       It must be click-triggered because popups opened without a user
+       gesture are blocked outright. */
+
+    function needSignIn(why) {
+      if (why) console.info("[sync] " + why);
+      status("tap here to sign in", "warn");
+      var el = document.getElementById("syncstate");
+      if (el && !el._wired) {
+        el._wired = true;
+        el.style.cursor = "pointer";
+        el.title = "Sign in with Google to sync this list across your devices";
+        el.addEventListener("click", signIn);
+      }
+    }
+
+    function signIn() {
+      status("signing in…", "busy");
+      authMod.signInWithPopup(auth, new authMod.GoogleAuthProvider())
+        .catch(function (e) {
+          var code = (e && e.code) || "unknown";
+          console.warn("[sync] popup sign-in failed:", code);
+          if (code === "auth/popup-blocked" ||
+              code === "auth/operation-not-supported-in-this-environment") {
+            // Some in-app browsers can't do popups at all; redirect is the
+            // only remaining option there even if it's less reliable.
+            authMod.signInWithRedirect(auth, new authMod.GoogleAuthProvider());
+          } else {
+            needSignIn("sign-in cancelled (" + code + ")");
+          }
+        });
+    }
+
+    // Catch a returning redirect, for the fallback path above.
+    authMod.getRedirectResult(auth).catch(function (e) {
+      console.warn("[sync] redirect result:", e && e.code);
+    });
 
     authMod.onAuthStateChanged(auth, function (user) {
-      if (!user) {
-        // Popups are blocked inside an installed iOS web app, so redirect.
-        authMod.getRedirectResult(auth)
-          .catch(function (e) { console.warn("[sync] sign-in failed:", e && e.message); })
-          .then(function () {
-            // Only ever attempt once per tab. Without this, a dismissed or
-            // failed sign-in bounces straight back into another redirect and
-            // the app reloads forever.
-            var tried;
-            try { tried = sessionStorage.getItem(TRIED); } catch (e) {}
-            if (tried) { off("not signed in — reopen the app to try again"); return; }
-            try { sessionStorage.setItem(TRIED, "1"); } catch (e) {}
-            status("signing in…", "busy");
-            authMod.signInWithRedirect(auth, new authMod.GoogleAuthProvider());
-          });
-        return;
-      }
-      try { sessionStorage.removeItem(TRIED); } catch (e) {}
+      if (!user) { needSignIn("signed out"); return; }
       wire(user.uid);
     });
 
