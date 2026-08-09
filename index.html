@@ -744,12 +744,12 @@
     var colors = ["#ff5e5b", "#ffb400", "#ffe066", "#2ec4b6", "#4d96ff",
                   "#9b5de5", "#f15bb5", "#00d68f"];
     var W = cvs.width, H = cvs.height;
-    var n = W < 500 ? 170 : 280;                 // fewer pieces on a phone
+    var n = W < 500 ? 200 : 340;                 // fewer pieces on a phone
     for (var i = 0; i < n; i++) {
       parts.push({
         x: Math.random() * W,
-        y: -15 - Math.random() * H * 0.45,      // staggered so it rains, not dumps
-        vy: 12 + Math.random() * 11,             // fast — clears the screen quickly
+        y: -15 - Math.random() * H * 2.4,       // stacked high so the rain lasts ~2.5s
+        vy: 11 + Math.random() * 9,              // fast individual pieces
         vx: (Math.random() - 0.5) * 0.9,
         w: 3 + Math.random() * 3,
         h: 4 + Math.random() * 4,
