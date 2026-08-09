@@ -1,21 +1,13 @@
-/* ─────────────────────────────────────────────────────────────
-   Paste your Firebase web config between the braces below.
-
-   Firebase Console → your project → Project settings (gear icon) →
-   "Your apps" → the Web app → "SDK setup and configuration" → Config.
-   Copy the object it shows you and replace the whole block here.
-
-   These values are not secrets — Google publishes them in every web app.
-   What actually protects your tasks is the Firestore security rule, which
-   only lets a signed-in person read and write their own list.
-
-   Until this is filled in, the app simply runs offline on this device.
-   ───────────────────────────────────────────────────────────── */
+/* Firebase project: today-3a739
+   These values are not secrets — Google publishes them in every web app, and
+   they are visible in this public repo by design. What actually protects the
+   list is the Firestore rule: only a signed-in user can read or write their
+   own document under /lists/{uid}. */
 window.TODAY_FIREBASE = {
-  apiKey:            "PASTE_YOUR_API_KEY",
-  authDomain:        "PASTE_YOUR_PROJECT.firebaseapp.com",
-  projectId:         "PASTE_YOUR_PROJECT",
-  storageBucket:     "PASTE_YOUR_PROJECT.appspot.com",
-  messagingSenderId: "PASTE_SENDER_ID",
-  appId:             "PASTE_APP_ID"
+  apiKey:            "AIzaSyA2ca_65eTz-k34NtyAu1Tx9mjkj4C3KZM",
+  authDomain:        "today-3a739.firebaseapp.com",
+  projectId:         "today-3a739",
+  storageBucket:     "today-3a739.firebasestorage.app",
+  messagingSenderId: "306757179417",
+  appId:             "1:306757179417:web:6cbc69111cab5e79773288"
 };

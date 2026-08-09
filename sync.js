@@ -127,15 +127,26 @@
 
     authMod.setPersistence(auth, authMod.browserLocalPersistence).catch(function () {});
 
+    var TRIED = "todo.authtry";
+
     authMod.onAuthStateChanged(auth, function (user) {
       if (!user) {
         // Popups are blocked inside an installed iOS web app, so redirect.
-        authMod.getRedirectResult(auth).catch(function () {}).then(function () {
-          var p = new authMod.GoogleAuthProvider();
-          authMod.signInWithRedirect(auth, p);
-        });
+        authMod.getRedirectResult(auth)
+          .catch(function (e) { console.warn("[sync] sign-in failed:", e && e.message); })
+          .then(function () {
+            // Only ever attempt once per tab. Without this, a dismissed or
+            // failed sign-in bounces straight back into another redirect and
+            // the app reloads forever.
+            var tried;
+            try { tried = sessionStorage.getItem(TRIED); } catch (e) {}
+            if (tried) { off("not signed in — reopen the app to try again"); return; }
+            try { sessionStorage.setItem(TRIED, "1"); } catch (e) {}
+            authMod.signInWithRedirect(auth, new authMod.GoogleAuthProvider());
+          });
         return;
       }
+      try { sessionStorage.removeItem(TRIED); } catch (e) {}
       wire(user.uid);
     });
 
