@@ -768,9 +768,8 @@
     ctx.clearRect(0, 0, cvs.width, cvs.height);
     for (var i = parts.length - 1; i >= 0; i--) {
       var p = parts[i];
-      p.vy += 0.8;            // gravity turns the shot into an arc
-      p.vx *= 0.985;          // drag, so it slows as it spreads
-      p.vy *= 0.985;
+      p.vy += 1.15;           // gravity turns the shot into an arc
+      p.vx *= 0.985;          // drag sideways only; damping vy fought gravity
       p.x += p.vx;
       p.y += p.vy;
       p.phase += p.spin;
