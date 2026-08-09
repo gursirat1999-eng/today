@@ -418,6 +418,7 @@
   .syncstate.warn::before { background:var(--urgent); }
   @media (max-width: 700px) { .syncstate { font-size:10px; } }
 </style>
+<style>.confetti{position:fixed;inset:0;z-index:5;pointer-events:none;}</style>
 </head>
 <body>
 
@@ -481,6 +482,7 @@
   "use strict";
 
   var KEY = "todo.items.v1", TKEY = "todo.theme.v1", DKEY = "todo.lastday.v1";
+  var NAME = "Ghost";
   var items = load(), filter = "all", dragId = null, armed = false;
 
   var $entry = document.getElementById("entry");
@@ -562,8 +564,8 @@
      Repainted on a timer too: this window tends to stay open for days. */
   function paintHeader() {
     var now = new Date(), h = now.getHours();
-    document.getElementById("greet").textContent =
-      h < 5 ? "Still up" : h < 12 ? "Good morning" : h < 18 ? "Good afternoon" : "Good evening";
+    var base = h < 5 ? "Still up" : h < 12 ? "Good morning" : h < 18 ? "Good afternoon" : "Good evening";
+    document.getElementById("greet").textContent = base + ", " + NAME;
     document.getElementById("date").textContent =
       now.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" });
   }
@@ -599,7 +601,12 @@
     var tick = document.createElement("span");
     tick.className = "tick";
     tick.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>';
-    tick.addEventListener("click", function () { toggle(t.id); });
+    tick.addEventListener("click", function () {
+      var celebrate = !t.done;                       // only on completing, not un-completing
+      var r = tick.getBoundingClientRect();
+      toggle(t.id);
+      if (celebrate) confetti(r.left + r.width / 2, r.top + r.height / 2);
+    });
 
     var txt = document.createElement("span");
     txt.className = "txt";
@@ -640,6 +647,9 @@
       lane.list.textContent = "";
       var mine = items.filter(function (t) { return !!t.urgent === lane.urgent; });
       var shown = mine.filter(passesFilter);
+      // Completed tasks rise to the top of their column. Sort is stable, so
+      // everything else keeps the order you arranged it in.
+      shown.sort(function (x, y) { return (y.done ? 1 : 0) - (x.done ? 1 : 0); });
 
       shown.forEach(function (t) { lane.list.appendChild(row(t)); });
 
@@ -714,6 +724,54 @@
   }
 
   /* ── entry ── */
+  /* Confetti burst from the checkbox just ticked. Hand-rolled on a canvas
+     rather than pulling in a library, so the page stays self-contained and
+     works offline. */
+  var cvs, ctx, parts = [], raf = null;
+
+  function sizeCanvas() { if (cvs) { cvs.width = window.innerWidth; cvs.height = window.innerHeight; } }
+
+  function confetti(x, y) {
+    if (!cvs) {
+      cvs = document.createElement("canvas");
+      cvs.className = "confetti";
+      document.body.appendChild(cvs);
+      ctx = cvs.getContext("2d");
+      sizeCanvas();
+      window.addEventListener("resize", sizeCanvas);
+    }
+    var colors = ["#ff6f61", "#ffd166", "#6bcb77", "#4d96ff", "#c77dff", "#ffffff"];
+    for (var i = 0; i < 70; i++) {
+      var a = Math.random() * Math.PI * 2, sp = 3 + Math.random() * 6;
+      parts.push({
+        x: x, y: y,
+        vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 3,
+        w: 4 + Math.random() * 4, h: 6 + Math.random() * 7,
+        rot: Math.random() * Math.PI, vr: (Math.random() - 0.5) * 0.4,
+        c: colors[(Math.random() * colors.length) | 0], life: 1
+      });
+    }
+    if (!raf) raf = requestAnimationFrame(step);
+  }
+
+  function step() {
+    ctx.clearRect(0, 0, cvs.width, cvs.height);
+    for (var i = parts.length - 1; i >= 0; i--) {
+      var p = parts[i];
+      p.vy += 0.25; p.vx *= 0.99;
+      p.x += p.vx; p.y += p.vy; p.rot += p.vr; p.life -= 0.012;
+      if (p.life <= 0 || p.y > cvs.height + 40) { parts.splice(i, 1); continue; }
+      ctx.save();
+      ctx.globalAlpha = Math.max(0, p.life);
+      ctx.translate(p.x, p.y);
+      ctx.rotate(p.rot);
+      ctx.fillStyle = p.c;
+      ctx.fillRect(-p.w / 2, -p.h / 2, p.w, p.h);
+      ctx.restore();
+    }
+    if (parts.length) { raf = requestAnimationFrame(step); }
+    else { raf = null; ctx.clearRect(0, 0, cvs.width, cvs.height); }
+  }
   function submit(urgent, refocus) {
     add($new.value, urgent);
     $new.value = "";
