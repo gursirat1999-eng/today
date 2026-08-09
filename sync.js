@@ -18,7 +18,17 @@
   var CFG = window.TODAY_FIREBASE;
   var bridge = window.__today;
 
-  function off(why) { console.info("[sync] off — " + why + ". Tasks stay on this device."); }
+  /* Sync used to fail invisibly — the page looked fine while nothing was
+     being shared. Every state now shows in the footer. */
+  function status(text, cls) {
+    var el = document.getElementById("syncstate");
+    if (el) { el.textContent = text; el.className = "syncstate" + (cls ? " " + cls : ""); }
+  }
+
+  function off(why) {
+    console.info("[sync] off — " + why + ". Tasks stay on this device.");
+    status("this device only", "warn");
+  }
 
   if (!bridge)                                    return off("app bridge missing");
   if (!location.protocol.indexOf)                 return off("bad location");
@@ -142,6 +152,7 @@
             try { tried = sessionStorage.getItem(TRIED); } catch (e) {}
             if (tried) { off("not signed in — reopen the app to try again"); return; }
             try { sessionStorage.setItem(TRIED, "1"); } catch (e) {}
+            status("signing in…", "busy");
             authMod.signInWithRedirect(auth, new authMod.GoogleAuthProvider());
           });
         return;
@@ -154,8 +165,11 @@
       var ref = dbMod.doc(db, "lists", uid);
 
       remoteWrite = function (payload) {
-        dbMod.setDoc(ref, payload).catch(function (e) {
+        dbMod.setDoc(ref, payload).then(function () {
+          status("synced", "ok");
+        }).catch(function (e) {
           console.warn("[sync] write failed", e.message);
+          status("sync error: " + e.code, "warn");
         });
       };
 
@@ -168,10 +182,12 @@
           bridge.write(merged);
           applying = false;
         }
+        status("synced", "ok");
         // if our local state carried anything the server lacked, send it up
         schedulePush();
       }, function (e) {
         console.warn("[sync] listen failed", e.message);
+        status("sync error: " + e.code, "warn");
       });
 
       // seed the shadow from whatever is already on this device

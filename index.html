@@ -402,6 +402,22 @@
     li:hover { background:transparent; }
   }
 </style>
+<style>
+  /* sync state, shown in the footer */
+  .statusline { display:flex; align-items:center; gap:12px; min-width:0; }
+  .syncstate {
+    display:flex; align-items:center; gap:6px;
+    font-size:11px; letter-spacing:.03em; color:var(--muted); white-space:nowrap;
+  }
+  .syncstate::before {
+    content:""; width:6px; height:6px; border-radius:50%;
+    background:var(--faint); flex:none;
+  }
+  .syncstate.ok::before   { background:#4bbf73; }
+  .syncstate.busy::before { background:#d9a441; }
+  .syncstate.warn::before { background:var(--urgent); }
+  @media (max-width: 700px) { .syncstate { font-size:10px; } }
+</style>
 </head>
 <body>
 
@@ -450,7 +466,7 @@
   </div>
 
   <footer>
-    <span id="count">0 left</span>
+    <span class="statusline"><span id="count">0 left</span><span id="syncstate" class="syncstate">starting…</span></span>
     <div class="filters">
       <button data-f="all" class="on">All</button>
       <button data-f="active">Active</button>
