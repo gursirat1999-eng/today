@@ -41,8 +41,12 @@ self.addEventListener("fetch", (e) => {
   const url = new URL(req.url);
   if (url.origin !== self.location.origin) return;   // never touch Firebase traffic
 
+  /* Bypass the browser's HTTP cache explicitly. GitHub Pages serves these
+     files with a 10-minute max-age, so a plain fetch() here still returned a
+     stale copy after a redeploy — which repeatedly looked like fixes hadn't
+     shipped. The service worker's own cache below still covers offline. */
   e.respondWith(
-    fetch(req)
+    fetch(req.url, { cache: "no-store", credentials: "same-origin" })
       .then((res) => {
         if (res && res.ok) {
           const copy = res.clone();

@@ -744,15 +744,15 @@
     var colors = ["#ff5e5b", "#ffb400", "#ffe066", "#2ec4b6", "#4d96ff",
                   "#9b5de5", "#f15bb5", "#00d68f"];
     var W = cvs.width, H = cvs.height;
-    var n = W < 500 ? 110 : 190;                 // fewer pieces on a phone
+    var n = W < 500 ? 170 : 280;                 // fewer pieces on a phone
     for (var i = 0; i < n; i++) {
       parts.push({
         x: Math.random() * W,
-        y: -20 - Math.random() * H * 0.55,      // staggered so it rains, not dumps
-        vy: 5.5 + Math.random() * 6.5,          // brisk, like iMessage
+        y: -15 - Math.random() * H * 0.45,      // staggered so it rains, not dumps
+        vy: 12 + Math.random() * 11,             // fast — clears the screen quickly
         vx: (Math.random() - 0.5) * 0.9,
-        w: 6 + Math.random() * 5,
-        h: 9 + Math.random() * 7,
+        w: 3 + Math.random() * 3,
+        h: 4 + Math.random() * 4,
         phase: Math.random() * Math.PI * 2,
         spin: 0.10 + Math.random() * 0.18,
         sway: 0.4 + Math.random() * 1.0,
