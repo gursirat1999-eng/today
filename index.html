@@ -744,15 +744,15 @@
     var colors = ["#ff5e5b", "#ffb400", "#ffe066", "#2ec4b6", "#4d96ff",
                   "#9b5de5", "#f15bb5", "#00d68f"];
     var W = cvs.width, H = cvs.height;
-    var n = W < 500 ? 200 : 340;                 // fewer pieces on a phone
+    var n = W < 500 ? 260 : 440;                 // fewer pieces on a phone
     for (var i = 0; i < n; i++) {
       parts.push({
         x: Math.random() * W,
         y: -15 - Math.random() * H * 0.7,       // short tail: whole thing done in ~1.2s
         vy: 20 + Math.random() * 14,             // very fast fall
         vx: (Math.random() - 0.5) * 0.9,
-        w: 3 + Math.random() * 3,
-        h: 4 + Math.random() * 4,
+        w: 2 + Math.random() * 2,
+        h: 3 + Math.random() * 3,
         phase: Math.random() * Math.PI * 2,
         spin: 0.10 + Math.random() * 0.18,
         sway: 0.4 + Math.random() * 1.0,
