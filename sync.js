@@ -161,24 +161,75 @@
       }
     }
 
+    var MAILKEY = "todo.signin.email";
+
+    /* An installed iOS web app can do neither Google method reliably: a popup
+       loses its opener so the credential never comes back, and redirect dies
+       on the github.io / firebaseapp.com storage split. Email link is the one
+       flow that finishes on our own origin, so that's what iOS gets. */
+    function isInstalledIOS() {
+      var ios = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+                (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+      var standalone = window.navigator.standalone === true ||
+                       window.matchMedia("(display-mode: standalone)").matches;
+      return ios && standalone;
+    }
+
+    function emailLinkSignIn() {
+      var email = "";
+      try { email = window.localStorage.getItem(MAILKEY) || ""; } catch (e) {}
+      email = window.prompt("Enter your email — you'll get a one-tap sign-in link:", email);
+      if (!email) { needSignIn("cancelled"); return; }
+      status("sending link…", "busy");
+      authMod.sendSignInLinkToEmail(auth, email, {
+        url: location.origin + location.pathname,
+        handleCodeInApp: true
+      }).then(function () {
+        try { window.localStorage.setItem(MAILKEY, email); } catch (e) {}
+        status("check your email", "busy");
+        window.alert("Sign-in link sent to " + email + ".\n\nOpen the email on this device and tap the link — it comes straight back here, signed in.");
+      }).catch(function (e) {
+        console.warn("[sync] email link failed:", e && e.code);
+        needSignIn("couldn't send link (" + ((e && e.code) || "error") + ")");
+      });
+    }
+
     function signIn() {
+      if (isInstalledIOS()) { emailLinkSignIn(); return; }
       status("signing in…", "busy");
       authMod.signInWithPopup(auth, new authMod.GoogleAuthProvider())
         .catch(function (e) {
           var code = (e && e.code) || "unknown";
           console.warn("[sync] popup sign-in failed:", code);
           if (code === "auth/popup-blocked" ||
-              code === "auth/operation-not-supported-in-this-environment") {
-            // Some in-app browsers can't do popups at all; redirect is the
-            // only remaining option there even if it's less reliable.
-            authMod.signInWithRedirect(auth, new authMod.GoogleAuthProvider());
+              code === "auth/operation-not-supported-in-this-environment" ||
+              code === "auth/popup-closed-by-user") {
+            emailLinkSignIn();          // the reliable fallback everywhere
           } else {
             needSignIn("sign-in cancelled (" + code + ")");
           }
         });
     }
 
-    // Catch a returning redirect, for the fallback path above.
+    /* Returning from the emailed link: finish the sign-in, then strip the
+       credential out of the address bar so a reload can't replay it. */
+    if (authMod.isSignInWithEmailLink(auth, location.href)) {
+      var saved = "";
+      try { saved = window.localStorage.getItem(MAILKEY) || ""; } catch (e) {}
+      if (!saved) saved = window.prompt("Confirm the email you requested the link with:") || "";
+      if (saved) {
+        status("signing in…", "busy");
+        authMod.signInWithEmailLink(auth, saved, location.href).then(function () {
+          try { window.localStorage.removeItem(MAILKEY); } catch (e) {}
+          history.replaceState(null, "", location.origin + location.pathname);
+        }).catch(function (e) {
+          console.warn("[sync] email link sign-in failed:", e && e.code);
+          needSignIn("link expired or already used");
+        });
+      }
+    }
+
+    // Catch a returning redirect, for older sessions that used it.
     authMod.getRedirectResult(auth).catch(function (e) {
       console.warn("[sync] redirect result:", e && e.code);
     });
