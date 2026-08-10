@@ -104,8 +104,13 @@
     });
 
     var out = Object.keys(best).map(function (id) { return best[id]; });
-    // newest first, matching how the app prepends new tasks
-    out.sort(function (a, b) { return b.at - a.at; });
+    // Order by the position the user dragged things into. Sorting by timestamp
+    // here used to silently undo every manual reorder on the next sync.
+    out.sort(function (a, b) {
+      var pa = typeof a.task.pos === "number" ? a.task.pos : 0;
+      var pb = typeof b.task.pos === "number" ? b.task.pos : 0;
+      return pa === pb ? b.at - a.at : pa - pb;
+    });
 
     shadow = Object.create(null);
     out.forEach(function (e) {

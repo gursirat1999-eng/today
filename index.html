@@ -419,6 +419,28 @@
   @media (max-width: 700px) { .syncstate { font-size:10px; } }
 </style>
 <style>.confetti{position:fixed;inset:0;z-index:5;pointer-events:none;}</style>
+<style>
+  /* drag handle */
+  .grip {
+    flex:none; display:grid; place-items:center; padding:2px 3px;
+    color:var(--faint); cursor:grab; opacity:0;
+    touch-action:none;            /* stop the page scrolling mid-drag */
+    -webkit-user-select:none; user-select:none;
+    transition:opacity .2s, color .2s;
+  }
+  .grip svg { width:12px; height:12px; }
+  li:hover .grip { opacity:1; }
+  .grip:hover { color:var(--text); }
+  .grip:active { cursor:grabbing; }
+  li.dragging { opacity:.45; }
+  body.reordering { cursor:grabbing; }
+  body.reordering .txt { pointer-events:none; }
+  /* touch has no hover, so the handle has to stay visible and be finger-sized */
+  @media (hover: none) {
+    .grip { opacity:.55; padding:6px 6px; }
+    .grip svg { width:15px; height:15px; }
+  }
+</style>
 </head>
 <body>
 
@@ -545,9 +567,10 @@
     var t = today(), last = null, dirty = false;
     try { last = localStorage.getItem(DKEY); } catch (e) {}
 
-    items.forEach(function (x) {
+    items.forEach(function (x, i) {
       if (!x.created) { x.created = last || t; dirty = true; }
       if (typeof x.urgent !== "boolean") { x.urgent = false; dirty = true; }
+      if (typeof x.pos !== "number") { x.pos = i; dirty = true; }
     });
 
     if (last && last !== t) {
@@ -595,7 +618,7 @@
   function row(t) {
     var li = document.createElement("li");
     li.className = t.done ? "done" : "";
-    li.draggable = true;
+    li.draggable = false;
     li.dataset.id = t.id;
 
     var tick = document.createElement("span");
@@ -638,7 +661,13 @@
     kill.title = "Delete";
     kill.addEventListener("click", function () { remove(t.id); });
 
-    li.append(move, kill);
+    var grip = document.createElement("span");
+    grip.className = "grip";
+    grip.title = "Drag to reorder";
+    grip.innerHTML = '<svg viewBox="0 0 16 16" fill="currentColor"><circle cx="6" cy="4" r="1.4"/><circle cx="10" cy="4" r="1.4"/><circle cx="6" cy="8" r="1.4"/><circle cx="10" cy="8" r="1.4"/><circle cx="6" cy="12" r="1.4"/><circle cx="10" cy="12" r="1.4"/></svg>';
+    grip.addEventListener("pointerdown", function (e) { beginDrag(e, li); });
+
+    li.append(move, kill, grip);
     return li;
   }
 
@@ -649,7 +678,10 @@
       var shown = mine.filter(passesFilter);
       // Completed tasks rise to the top of their column. Sort is stable, so
       // everything else keeps the order you arranged it in.
-      shown.sort(function (x, y) { return (y.done ? 1 : 0) - (x.done ? 1 : 0); });
+      shown.sort(function (x, y) {
+        var d = (y.done ? 1 : 0) - (x.done ? 1 : 0);
+        return d ? d : (x.pos || 0) - (y.pos || 0);
+      });
 
       shown.forEach(function (t) { lane.list.appendChild(row(t)); });
 
@@ -676,7 +708,9 @@
     if (!text) return;
     items.unshift({
       id: Date.now() + "" + Math.round(Math.random() * 1e4),
-      text: text, done: false, created: today(), urgent: !!urgent
+      text: text, done: false, created: today(), urgent: !!urgent,
+      pos: (items.length ? Math.min.apply(null, items.map(function (t) {
+             return typeof t.pos === "number" ? t.pos : 0; })) : 0) - 1
     });
     save(); render();
   }
@@ -835,65 +869,68 @@
     save(); render();
   });
 
-  /* ── drag: reorder within a column, or drop across to change urgency ── */
-  function indexOfId(id) {
-    return items.findIndex(function (t) { return t.id === id; });
+  /* ── drag to reorder ──
+     Pointer events, not HTML5 drag-and-drop: the latter never fires on touch,
+     so the phone could not reorder at all. The dragged row is moved in the DOM
+     as a live preview and only written to state on release - re-rendering
+     mid-drag would destroy the element and with it the touch pointer capture
+     that keeps the gesture alive. */
+  var drag = null;
+
+  function beginDrag(e, li) {
+    if (e.button && e.button !== 0) return;
+    e.preventDefault();
+    drag = { li: li };
+    li.classList.add("dragging");
+    document.body.classList.add("reordering");
+    try { li.setPointerCapture(e.pointerId); } catch (err) {}
   }
 
-  document.addEventListener("dragstart", function (e) {
-    var li = e.target.closest && e.target.closest("li[data-id]");
-    if (!li) return;
-    dragId = li.dataset.id;
-    li.classList.add("dragging");
-    e.dataTransfer.effectAllowed = "move";
-    try { e.dataTransfer.setData("text/plain", dragId); } catch (err) {}
+  document.addEventListener("pointermove", function (e) {
+    if (!drag) return;
+    e.preventDefault();
+    var el = document.elementFromPoint(e.clientX, e.clientY);
+    if (!el || !el.closest) return;
+    var list = el.closest(".list");
+    if (!list) return;
+    var over = el.closest("li[data-id]");
+    if (over && over !== drag.li) {
+      var r = over.getBoundingClientRect();
+      if (e.clientY < r.top + r.height / 2) list.insertBefore(drag.li, over);
+      else list.insertBefore(drag.li, over.nextSibling);
+    } else if (!over && drag.li.parentNode !== list) {
+      list.appendChild(drag.li);          // dropped into empty space in a column
+    }
   });
 
-  document.addEventListener("dragend", function () {
-    dragId = null;
-    lanes.forEach(function (l) { l.col.classList.remove("over"); });
-    render();
-  });
+  function endDrag() {
+    if (!drag) return;
+    drag.li.classList.remove("dragging");
+    document.body.classList.remove("reordering");
+    drag = null;
+    commitOrder();
+  }
+  document.addEventListener("pointerup", endDrag);
+  document.addEventListener("pointercancel", endDrag);
 
-  lanes.forEach(function (lane) {
-    lane.col.addEventListener("dragover", function (e) {
-      if (!dragId) return;
-      e.preventDefault();
-      e.dataTransfer.dropEffect = "move";
-      lane.col.classList.add("over");
-
-      var from = indexOfId(dragId);
-      if (from < 0) return;
-      var task = items[from];
-      var changed = false;
-
-      if (!!task.urgent !== lane.urgent) { task.urgent = lane.urgent; changed = true; }
-
-      var over = e.target.closest && e.target.closest("li[data-id]");
-      if (over && over.dataset.id !== dragId) {
-        var to = indexOfId(over.dataset.id);
-        if (to > -1 && to !== from) {
-          items.splice(to, 0, items.splice(from, 1)[0]);
-          changed = true;
+  /* Read the order straight off the DOM and write it back, so what you see is
+     what gets stored - including a move between columns. */
+  function commitOrder() {
+    lanes.forEach(function (lane) {
+      var rows = lane.list.querySelectorAll("li[data-id]");
+      Array.prototype.forEach.call(rows, function (li, i) {
+        var t = null;
+        for (var k = 0; k < items.length; k++) {
+          if (items[k].id === li.dataset.id) { t = items[k]; break; }
         }
-      }
-
-      if (changed) {
-        save(); render();
-        var moved = document.querySelector('li[data-id="' + dragId + '"]');
-        if (moved) moved.classList.add("dragging");
-      }
+        if (!t) return;
+        t.pos = i;
+        t.urgent = lane.urgent;
+      });
     });
-
-    lane.col.addEventListener("dragleave", function (e) {
-      if (!lane.col.contains(e.relatedTarget)) lane.col.classList.remove("over");
-    });
-
-    lane.col.addEventListener("drop", function (e) {
-      e.preventDefault();
-      lane.col.classList.remove("over");
-    });
-  });
+    save();
+    render();
+  }
 
   /* ── day watcher ──
      The window stays open for days, so roll over at midnight too. */
