@@ -441,6 +441,32 @@
     .grip svg { width:15px; height:15px; }
   }
 </style>
+<style>
+  /* four day columns */
+  .cols.four { grid-template-columns: repeat(4, 1fr); gap: 10px; }
+  .cols.four .col-head { font-size: 10px; letter-spacing: .1em; }
+  .cols.four .txt { font-size: 13.5px; }
+  .cols.four .carried { display: none; }   /* no room for it at this width */
+  @media (max-width: 700px) { .cols, .cols.four { grid-template-columns: 1fr; } }
+
+  /* priority / day switch */
+  .viewtog {
+    display: flex; gap: 2px; margin-right: 8px;
+    background: rgba(127,127,127,.12); border-radius: 8px; padding: 2px;
+  }
+  .viewtog button {
+    border: none; background: transparent; color: var(--muted); font: inherit;
+    font-size: 11px; letter-spacing: .06em; text-transform: uppercase;
+    padding: 5px 10px; border-radius: 6px; cursor: pointer;
+    transition: background .2s, color .2s;
+  }
+  .viewtog button:hover { color: var(--text); }
+  .viewtog button.on { background: rgba(127,127,127,.22); color: var(--text); }
+
+  /* the left/right arrow only means something in the priority view */
+  body.view-day .move { display: none; }
+  @media (max-width: 700px) { .viewtog button { padding: 5px 8px; font-size: 10px; } }
+</style>
 </head>
 <body>
 
@@ -458,6 +484,10 @@
       <div class="date" id="date"></div>
     </div>
     <div class="actions">
+      <div class="viewtog" id="viewtog">
+        <button data-view="priority" type="button">Priority</button>
+        <button data-view="day" type="button">Day</button>
+      </div>
       <button class="refresh" id="refresh" title="Refresh" aria-label="Refresh">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/>
@@ -477,16 +507,7 @@
     <button class="urg" id="urg" title="Add the next task as urgent (or press Shift+Enter)" aria-label="Mark next task urgent">!</button>
   </div>
 
-  <div class="cols">
-    <section class="col hot" id="col-urgent" data-urgent="1">
-      <div class="col-head"><span class="dot"></span>Urgent<span class="n" id="n-urgent">0</span></div>
-      <ul class="list" id="list-urgent"></ul>
-    </section>
-    <section class="col" id="col-later" data-urgent="0">
-      <div class="col-head"><span class="dot"></span>Not urgent<span class="n" id="n-later">0</span></div>
-      <ul class="list" id="list-later"></ul>
-    </section>
-  </div>
+  <div class="cols" id="cols"></div>
 
   <footer>
     <span class="statusline"><span id="count">0 left</span><span id="syncstate" class="syncstate">starting…</span></span>
@@ -513,10 +534,87 @@
   var $count = document.getElementById("count");
   var $clear = document.getElementById("clear");
 
-  var lanes = [
-    { urgent: true,  col: document.getElementById("col-urgent"), list: document.getElementById("list-urgent"), n: document.getElementById("n-urgent") },
-    { urgent: false, col: document.getElementById("col-later"),  list: document.getElementById("list-later"),  n: document.getElementById("n-later")  }
+  var $cols = document.getElementById("cols");
+  var lanes = [];
+
+  /* Two ways to slice the same tasks. The view is remembered per device, so
+     the phone can sit on Day while the desktop stays on Priority. */
+  var VIEWKEY = "todo.view.v1";
+  var view = "priority";
+  try { view = localStorage.getItem(VIEWKEY) === "day" ? "day" : "priority"; } catch (e) {}
+
+  /* Day buckets derive from an absolute due date rather than stored
+     "today"/"tomorrow" labels, so they stay correct as days pass: yesterday's
+     Tomorrow becomes Today by itself, and anything overdue surfaces in Today
+     rather than quietly disappearing. */
+  function dayStamp(offset) {
+    var d = new Date();
+    d.setDate(d.getDate() + (offset || 0));
+    return d.getFullYear() + "-" +
+           String(d.getMonth() + 1).padStart(2, "0") + "-" +
+           String(d.getDate()).padStart(2, "0");
+  }
+
+  function bucketOf(t) {
+    if (!t.due) return "later";
+    if (t.due <= dayStamp(0)) return "today";       // overdue counts as today
+    if (t.due === dayStamp(1)) return "tomorrow";
+    if (t.due <= dayStamp(7)) return "week";
+    return "later";
+  }
+
+  function dueForBucket(key) {
+    if (key === "today")    return dayStamp(0);
+    if (key === "tomorrow") return dayStamp(1);
+    if (key === "week")     return dayStamp(3);
+    return null;                                    // "Later" means no date
+  }
+
+  var DAY_COLS = [
+    { key: "today",    title: "Today",     hot: true,  empty: "Nothing due today." },
+    { key: "tomorrow", title: "Tomorrow",  hot: false, empty: "Nothing tomorrow." },
+    { key: "week",     title: "This week", hot: false, empty: "Nothing this week." },
+    { key: "later",    title: "Later",     hot: false, empty: "Nothing here yet." }
   ];
+
+  function laneDefs() {
+    if (view === "day") {
+      return DAY_COLS.map(function (c) {
+        return {
+          title: c.title, hot: c.hot, empty: c.empty,
+          match:  function (t) { return bucketOf(t) === c.key; },
+          assign: function (t) { t.due = dueForBucket(c.key); }
+        };
+      });
+    }
+    return [
+      { title: "Urgent", hot: true, empty: "Nothing urgent.",
+        match:  function (t) { return !!t.urgent; },
+        assign: function (t) { t.urgent = true; } },
+      { title: "Not urgent", hot: false, empty: "Nothing here yet.",
+        match:  function (t) { return !t.urgent; },
+        assign: function (t) { t.urgent = false; } }
+    ];
+  }
+
+  function buildColumns() {
+    $cols.textContent = "";
+    $cols.className = "cols" + (view === "day" ? " four" : "");
+    document.body.classList.toggle("view-day", view === "day");
+    lanes = laneDefs().map(function (d) {
+      var sec  = document.createElement("section");
+      sec.className = "col" + (d.hot ? " hot" : "");
+      var head = document.createElement("div");
+      head.className = "col-head";
+      var dot  = document.createElement("span"); dot.className = "dot";
+      var n    = document.createElement("span"); n.className = "n";
+      head.append(dot, document.createTextNode(d.title), n);
+      var ul   = document.createElement("ul"); ul.className = "list";
+      sec.append(head, ul);
+      $cols.appendChild(sec);
+      return { empty: d.empty, match: d.match, assign: d.assign, col: sec, list: ul, n: n };
+    });
+  }
   /* Bridge for sync.js. Kept deliberately tiny: read the list, replace the
      list, and a callback fired whenever this device changes something. */
   var bridge = window.__today = {
@@ -672,9 +770,9 @@
   }
 
   function render() {
+    buildColumns();
     lanes.forEach(function (lane) {
-      lane.list.textContent = "";
-      var mine = items.filter(function (t) { return !!t.urgent === lane.urgent; });
+      var mine  = items.filter(lane.match);
       var shown = mine.filter(passesFilter);
       // Completed tasks rise to the top of their column. Sort is stable, so
       // everything else keeps the order you arranged it in.
@@ -690,7 +788,7 @@
         p.className = "empty";
         p.textContent = mine.length
           ? (filter === "done" ? "Nothing finished here." : "All clear.")
-          : (lane.urgent ? "Nothing urgent." : "Nothing here yet.");
+          : lane.empty;
         lane.list.appendChild(p);
       }
 
@@ -708,7 +806,7 @@
     if (!text) return;
     items.unshift({
       id: Date.now() + "" + Math.round(Math.random() * 1e4),
-      text: text, done: false, created: today(), urgent: !!urgent,
+      text: text, done: false, created: today(), urgent: !!urgent, due: dayStamp(0),
       pos: (items.length ? Math.min.apply(null, items.map(function (t) {
              return typeof t.pos === "number" ? t.pos : 0; })) : 0) - 1
     });
@@ -856,6 +954,27 @@
   });
 
   /* ── filters ── */
+  /* view switch */
+  (function () {
+    var box = document.getElementById("viewtog");
+    if (!box) return;
+    function paint() {
+      Array.prototype.forEach.call(box.querySelectorAll("button"), function (b) {
+        b.classList.toggle("on", b.dataset.view === view);
+      });
+    }
+    Array.prototype.forEach.call(box.querySelectorAll("button"), function (b) {
+      b.addEventListener("click", function () {
+        if (view === b.dataset.view) return;
+        view = b.dataset.view;
+        try { localStorage.setItem(VIEWKEY, view); } catch (e) {}
+        paint();
+        render();
+      });
+    });
+    paint();
+  })();
+
   document.querySelectorAll(".filters button").forEach(function (b) {
     b.addEventListener("click", function () {
       filter = b.dataset.f;
@@ -925,7 +1044,7 @@
         }
         if (!t) return;
         t.pos = i;
-        t.urgent = lane.urgent;
+        lane.assign(t);      // urgency, or the due date in Day view
       });
     });
     save();
