@@ -585,6 +585,14 @@
   .list { cursor: text; }          /* blank space invites a click */
   .rowmenu button:last-child { color: var(--urgent); }
 </style>
+<style>
+  .undo {
+    border:none; background:transparent; color:var(--muted); font:inherit;
+    cursor:pointer; transition:color .2s; margin-right:14px;
+  }
+  .undo:hover { color:var(--text); }
+  .undo[hidden] { display:none; }
+</style>
 </head>
 <body>
 
@@ -645,7 +653,8 @@
       <button data-f="active">Active</button>
       <button data-f="done">Done</button>
     </div>
-    <button class="clear" id="clear" hidden>Clear done</button>
+    <button class="undo" id="undo" type="button" title="Undo (Ctrl+Z)" hidden>Undo</button>
+      <button class="clear" id="clear" hidden>Clear done</button>
   </footer>
 </main>
 
@@ -832,9 +841,41 @@
       return Array.isArray(parsed) ? parsed : [];
     } catch (e) { return []; }
   }
+  /* Undo works on whole-list snapshots rather than per-action inverses.
+     Every mutation already funnels through save(), so one hook here covers
+     deleting, cutting, pasting, reordering, indenting and ticking without
+     each of them needing to describe how to reverse itself. */
+  var undoStack = [], lastSnap = null;
+  var UNDO_MAX = 40;
+
   function save() {
-    try { localStorage.setItem(KEY, JSON.stringify(items)); } catch (e) {}
+    var cur = JSON.stringify(items);
+    // Remote changes arriving from the other device are not the user's own
+    // action, so they must not land on the undo stack.
+    if (lastSnap !== null && lastSnap !== cur && !bridge._quiet) {
+      undoStack.push(lastSnap);
+      if (undoStack.length > UNDO_MAX) undoStack.shift();
+      paintUndo();
+    }
+    lastSnap = cur;
+    try { localStorage.setItem(KEY, cur); } catch (e) {}
     if (bridge.onLocalChange && !bridge._quiet) bridge.onLocalChange(items);
+  }
+
+  function undo() {
+    if (!undoStack.length) return;
+    var prev = undoStack.pop();
+    items = JSON.parse(prev);
+    lastSnap = prev;                       // do not re-record the undo itself
+    try { localStorage.setItem(KEY, prev); } catch (e) {}
+    if (bridge.onLocalChange) bridge.onLocalChange(items);
+    paintUndo();
+    render();
+  }
+
+  function paintUndo() {
+    var b = document.getElementById("undo");
+    if (b) b.hidden = undoStack.length === 0;
   }
 
   /* ── days ──
@@ -1301,6 +1342,19 @@
       wide = !wide;
       try { localStorage.setItem(WIDEKEY, wide ? "1" : "0"); } catch (e) {}
       paint();
+    });
+  })();
+
+  (function () {
+    var b = document.getElementById("undo");
+    if (b) b.addEventListener("click", undo);
+    document.addEventListener("keydown", function (e) {
+      if (!(e.ctrlKey || e.metaKey) || e.key.toLowerCase() !== "z" || e.shiftKey) return;
+      // inside a text field, leave Ctrl+Z to the browser so typing undo works
+      var a = document.activeElement;
+      if (a && (a.tagName === "INPUT" || a.tagName === "TEXTAREA" || a.isContentEditable)) return;
+      e.preventDefault();
+      undo();
     });
   })();
 
