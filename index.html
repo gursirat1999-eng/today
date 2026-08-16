@@ -579,6 +579,12 @@
   .rowmenu button:hover { background:rgba(127,127,127,.16); }
   .rowmenu button:last-child { color:var(--urgent); }
 </style>
+<style>
+  .txt { cursor: text; }
+  .txt.blank::before { content:"Type here..."; color:var(--faint); }
+  .list { cursor: text; }          /* blank space invites a click */
+  .rowmenu button:last-child { color: var(--urgent); }
+</style>
 </head>
 <body>
 
@@ -795,9 +801,15 @@
         head.appendChild(paste);
       }
       var ul   = document.createElement("ul"); ul.className = "list";
+      var laneRef = { empty: d.empty, match: d.match, assign: d.assign, col: sec, list: ul, n: n };
       sec.append(head, ul);
       $cols.appendChild(sec);
-      return { empty: d.empty, match: d.match, assign: d.assign, col: sec, list: ul, n: n };
+      ul.addEventListener("click", function (e) {
+        if (e.target === ul || (e.target.classList && e.target.classList.contains("empty"))) {
+          newRowInLane(laneRef);
+        }
+      });
+      return laneRef;
     });
   }
   /* Bridge for sync.js. Kept deliberately tiny: read the list, replace the
@@ -949,6 +961,7 @@
     li.className = t.done ? "done" : "";
     li.draggable = false;
     li.dataset.id = t.id;
+    if (t.indent) li.style.paddingLeft = (5 + t.indent * 22) + "px";
 
     var tick = document.createElement("span");
     tick.className = "tick";
@@ -963,8 +976,9 @@
     var txt = document.createElement("span");
     txt.className = "txt";
     txt.textContent = t.text;
-    txt.title = "Double-click to edit";
-    txt.addEventListener("dblclick", function () { edit(li, txt, t.id); });
+    if (!t.text) txt.classList.add("blank");
+    txt.title = "Click to edit";
+    txt.addEventListener("click", function (e) { e.stopPropagation(); edit(li, txt, t.id); });
 
     li.append(tick, txt);
 
@@ -1030,6 +1044,13 @@
       lane.n.textContent = mine.filter(function (t) { return !t.done; }).length;
     });
 
+    if (pendingEdit) {
+      var wanted = pendingEdit;
+      pendingEdit = null;
+      var target = $cols.querySelector('li[data-id="' + wanted + '"]');
+      if (target) edit(target, target.querySelector(".txt"), wanted);
+    }
+
     var mineAll = items.filter(inSpace);
     var left = mineAll.filter(function (t) { return !t.done; }).length;
     $count.textContent = left + (space === "notes" ? (left === 1 ? " note" : " notes") : " left");
@@ -1061,7 +1082,22 @@
     save(); render();
   }
 
+  /* Inline editing that behaves like a notepad rather than a form field:
+       Enter      commit and open a fresh line below
+       Tab        indent one level (sub-bullet), Shift+Tab outdents
+       Backspace  on an empty line deletes it and moves up
+       Escape     abandon the edit
+     Cut / copy / paste inside the line are the browser's own. */
+  var pendingEdit = null;
+
+  function taskById(id) {
+    for (var i = 0; i < items.length; i++) if (items[i].id === id) return items[i];
+    return null;
+  }
+
   function edit(li, txt, id) {
+    var t = taskById(id);
+    if (!t) return;
     var input = document.createElement("input");
     input.type = "text";
     input.value = txt.textContent;
@@ -1069,26 +1105,87 @@
     input.style.cssText =
       "flex:1;min-width:0;background:transparent;border:none;outline:none;color:inherit;font:inherit;padding:0";
     li.replaceChild(input, txt);
-    li.draggable = false;
     input.focus();
     input.setSelectionRange(input.value.length, input.value.length);
 
     var closed = false;
-    function commit(keep) {
+    function commit(keep, then) {
       if (closed) return;
       closed = true;
+      var v = input.value.trim();
       if (keep) {
-        var v = input.value.trim();
-        if (v) { items.forEach(function (t) { if (t.id === id) t.text = v; }); save(); }
+        if (v) { t.text = v; save(); }
+        else { items = items.filter(function (x) { return x.id !== id; }); save(); }
       }
+      if (then) then(v);
       render();
     }
+
     input.addEventListener("blur", function () { commit(true); });
+
     input.addEventListener("keydown", function (e) {
-      if (e.key === "Enter") commit(true);
-      if (e.key === "Escape") commit(false);
       e.stopPropagation();
+
+      if (e.key === "Enter") {
+        e.preventDefault();
+        commit(true, function (v) {
+          if (v) pendingEdit = newRowAfter(t);   // keep typing on a fresh line
+        });
+        return;
+      }
+      if (e.key === "Escape") { commit(false); return; }
+
+      if (e.key === "Tab") {
+        e.preventDefault();
+        var step = e.shiftKey ? -1 : 1;
+        t.indent = Math.max(0, Math.min(4, (t.indent || 0) + step));
+        li.style.paddingLeft = (5 + (t.indent * 22)) + "px";   // live, no re-render
+        save();
+        return;
+      }
+      if (e.key === "Backspace" && input.value === "") {
+        e.preventDefault();
+        var prev = li.previousElementSibling;
+        var prevId = prev && prev.dataset ? prev.dataset.id : null;
+        items = items.filter(function (x) { return x.id !== id; });
+        save();
+        closed = true;
+        pendingEdit = prevId;
+        render();
+      }
     });
+  }
+
+  /* A new, empty line directly beneath an existing one, inheriting its
+     column, indent and urgency. */
+  function newRowAfter(t) {
+    var fresh = {
+      id: Date.now() + "" + Math.round(Math.random() * 1e4),
+      text: "", done: false, created: today(),
+      urgent: !!t.urgent, due: t.due || null, space: t.space || space,
+      indent: t.indent || 0,
+      pos: (typeof t.pos === "number" ? t.pos : 0) + 0.5
+    };
+    items.push(fresh);
+    save();
+    return fresh.id;
+  }
+
+  /* Clicking blank space in a column starts a new line there. */
+  function newRowInLane(lane) {
+    var mine = items.filter(lane.match);
+    var maxPos = 0;
+    mine.forEach(function (x) { if (typeof x.pos === "number" && x.pos > maxPos) maxPos = x.pos; });
+    var fresh = {
+      id: Date.now() + "" + Math.round(Math.random() * 1e4),
+      text: "", done: false, created: today(),
+      urgent: false, due: null, space: space, indent: 0, pos: maxPos + 1
+    };
+    lane.assign(fresh);          // the column decides urgency / day / space
+    items.push(fresh);
+    save();
+    pendingEdit = fresh.id;
+    render();
   }
 
   /* ── entry ── */
