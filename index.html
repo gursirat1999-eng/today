@@ -519,6 +519,66 @@
     .spacetog button { padding:5px 7px; font-size:10px; letter-spacing:.02em; }
   }
 </style>
+<style>
+  .copy {
+    flex:none; border:none; background:transparent; color:var(--faint);
+    cursor:pointer; padding:2px 3px; opacity:0; display:grid; place-items:center;
+    transition:opacity .2s, color .2s;
+  }
+  .copy svg { width:13px; height:13px; }
+  li:hover .copy { opacity:1; }
+  .copy:hover { color:var(--text); }
+
+  .pastechip {
+    margin-left:8px; border:1px dashed var(--faint); background:transparent;
+    color:var(--muted); font:inherit; font-size:9.5px; letter-spacing:.08em;
+    text-transform:uppercase; border-radius:20px; padding:2px 8px; cursor:pointer;
+    transition:color .2s, border-color .2s, background .2s;
+  }
+  .pastechip:hover { color:var(--text); border-color:var(--muted); background:rgba(127,127,127,.10); }
+  .col-head .n { margin-left:auto; }
+
+  @media (hover: none) {
+    .copy { opacity:.6; padding:6px 6px; }
+    .copy svg { width:16px; height:16px; }
+  }
+</style>
+<style>
+  /* On a phone the header now carries a greeting plus two switchers and three
+     icon buttons - far too much for one row, so it stacks. */
+  @media (max-width: 700px) {
+    header { flex-direction: column; align-items: flex-start; gap: 10px; }
+    header h1 { font-size: 21px; }
+    .actions { width: 100%; flex-wrap: wrap; justify-content: flex-start; gap: 6px; }
+    .spacetog, .viewtog { margin-right: 0; }
+    .spacetog button, .viewtog button { padding: 6px 9px; }
+  }
+</style>
+<style>
+  .more {
+    flex:none; border:none; background:transparent; color:var(--faint);
+    cursor:pointer; padding:2px 3px; opacity:0; display:grid; place-items:center;
+    transition:opacity .2s, color .2s;
+  }
+  .more svg { width:15px; height:15px; }
+  li:hover .more { opacity:1; }
+  .more:hover { color:var(--text); }
+  @media (hover: none) { .more { opacity:.6; padding:6px 6px; } .more svg { width:18px; height:18px; } }
+
+  .rowmenu {
+    position:fixed; z-index:40; min-width:172px;
+    display:flex; flex-direction:column; padding:5px;
+    border:1px solid var(--card-line); border-radius:11px;
+    background:var(--bg); box-shadow:0 14px 40px rgba(0,0,0,.45);
+  }
+  html[data-theme="light"] .rowmenu { background:#fff; }
+  .rowmenu button {
+    border:none; background:transparent; color:var(--text); font:inherit;
+    font-size:13px; text-align:left; padding:8px 10px; border-radius:7px; cursor:pointer;
+  }
+  .rowmenu button:hover { background:rgba(127,127,127,.16); }
+  .rowmenu button:last-child { color:var(--urgent); }
+</style>
 </head>
 <body>
 
@@ -652,6 +712,20 @@
 
   function inSpace(t) { return (t.space || "personal") === space; }
 
+  /* A one-slot clipboard for tasks. Lives in storage rather than memory so
+     you can copy in one space, switch to another, and still paste. */
+  var CLIPKEY = "todo.clip.v1";
+  var clip = null;
+  try { clip = JSON.parse(localStorage.getItem(CLIPKEY) || "null"); } catch (e) {}
+
+  function setClip(v) {
+    clip = v;
+    try {
+      if (v) localStorage.setItem(CLIPKEY, JSON.stringify(v));
+      else localStorage.removeItem(CLIPKEY);
+    } catch (e) {}
+  }
+
   function laneDefs() {
     if (space === "notes") {
       return [
@@ -692,6 +766,34 @@
       var dot  = document.createElement("span"); dot.className = "dot";
       var n    = document.createElement("span"); n.className = "n";
       head.append(dot, document.createTextNode(d.title), n);
+
+      if (clip) {
+        var paste = document.createElement("button");
+        paste.className = "pastechip";
+        paste.type = "button";
+        paste.textContent = clip.cut ? "Paste (cut)" : "Paste";
+        paste.title = "Paste \"" + clip.text + "\" into " + d.title;
+        paste.addEventListener("click", function (ev) {
+          ev.stopPropagation();
+          var copyOf = {
+            id: Date.now() + "" + Math.round(Math.random() * 1e4),
+            text: clip.text, done: false, created: today(),
+            urgent: !!clip.urgent, due: clip.due || null, space: space,
+            pos: (items.length ? Math.min.apply(null, items.map(function (t) {
+                   return typeof t.pos === "number" ? t.pos : 0; })) : 0) - 1
+          };
+          d.assign(copyOf);          // the column decides urgency / day / space
+          items.unshift(copyOf);
+          var wasCut = clip.cut, fromId = clip.fromId;
+          setClip(null);             // one paste per copy, keeps the chips from lingering
+          if (wasCut && fromId) {    // cut only removes the original once it lands somewhere
+            items = items.filter(function (x) { return x.id !== fromId; });
+          }
+          save();
+          render();
+        });
+        head.appendChild(paste);
+      }
       var ul   = document.createElement("ul"); ul.className = "list";
       sec.append(head, ul);
       $cols.appendChild(sec);
@@ -797,6 +899,51 @@
     return filter === "all" || (filter === "done" ? t.done : !t.done);
   }
 
+  /* Row overflow menu: Move / Copy / Cut. Anchored to the button and
+     clamped inside the viewport so it never opens off-screen. */
+  var openMenu = null;
+  function closeMenu() { if (openMenu) { openMenu.remove(); openMenu = null; } }
+  document.addEventListener("click", function () { closeMenu(); });
+  document.addEventListener("keydown", function (e) { if (e.key === "Escape") closeMenu(); });
+
+  function rowMenu(t, anchorEl) {
+    closeMenu();
+    var m = document.createElement("div");
+    m.className = "rowmenu";
+    m.addEventListener("click", function (e) { e.stopPropagation(); });
+    function opt(label, fn) {
+      var b = document.createElement("button");
+      b.type = "button";
+      b.textContent = label;
+      b.addEventListener("click", function () { closeMenu(); fn(); });
+      m.appendChild(b);
+    }
+    if (space !== "notes") {
+      opt(t.urgent ? "Move to Not urgent" : "Move to Urgent",
+          function () { setUrgent(t.id, !t.urgent); });
+    }
+    opt("Copy", function () {
+      setClip({ text: t.text, urgent: !!t.urgent, due: t.due || null, cut: false });
+      try { if (navigator.clipboard) navigator.clipboard.writeText(t.text); } catch (e) {}
+      render();
+    });
+    opt("Cut", function () {
+      setClip({ text: t.text, urgent: !!t.urgent, due: t.due || null, cut: true, fromId: t.id });
+      try { if (navigator.clipboard) navigator.clipboard.writeText(t.text); } catch (e) {}
+      render();
+    });
+    opt("Delete", function () { remove(t.id); });
+    document.body.appendChild(m);
+    var r = anchorEl.getBoundingClientRect();
+    var top  = r.bottom + 6;
+    var left = r.left;
+    if (top + m.offsetHeight > window.innerHeight - 8) top = r.top - m.offsetHeight - 6;
+    if (left + m.offsetWidth > window.innerWidth - 8) left = window.innerWidth - m.offsetWidth - 8;
+    m.style.top = Math.max(8, top) + "px";
+    m.style.left = Math.max(8, left) + "px";
+    openMenu = m;
+  }
+
   function row(t) {
     var li = document.createElement("li");
     li.className = t.done ? "done" : "";
@@ -831,15 +978,18 @@
       li.appendChild(badge);
     }
 
-    var move = document.createElement("button");
-    move.className = "move";
-    move.textContent = t.urgent ? "→" : "←";
-    move.title = t.urgent ? "Move to Not urgent" : "Move to Urgent";
-    move.addEventListener("click", function () { setUrgent(t.id, !t.urgent); });
+    /* Move / Copy / Cut live behind a single overflow button. Inline they
+       crowded the text down to about 90px on a phone, and adding Cut would
+       have made six controls competing with the task itself. */
+    var more = document.createElement("button");
+    more.className = "more";
+    more.title = "More actions";
+    more.innerHTML = '<svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="19" cy="12" r="1.7"/></svg>';
+    more.addEventListener("click", function (e) { e.stopPropagation(); rowMenu(t, more); });
 
     var kill = document.createElement("button");
     kill.className = "kill";
-    kill.textContent = "×";
+    kill.textContent = "\u00d7";
     kill.title = "Delete";
     kill.addEventListener("click", function () { remove(t.id); });
 
@@ -849,7 +999,7 @@
     grip.innerHTML = '<svg viewBox="0 0 16 16" fill="currentColor"><circle cx="6" cy="4" r="1.4"/><circle cx="10" cy="4" r="1.4"/><circle cx="6" cy="8" r="1.4"/><circle cx="10" cy="8" r="1.4"/><circle cx="6" cy="12" r="1.4"/><circle cx="10" cy="12" r="1.4"/></svg>';
     grip.addEventListener("pointerdown", function (e) { beginDrag(e, li); });
 
-    li.append(move, kill, grip);
+    li.append(more, kill, grip);
     return li;
   }
 
