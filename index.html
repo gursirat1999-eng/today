@@ -1157,6 +1157,11 @@
       if (keep) {
         if (v) { t.text = v; save(); }
         else { items = items.filter(function (x) { return x.id !== id; }); save(); }
+      } else if (!t.text) {
+        // Escape on a line that never had any text: drop it rather than
+        // leaving an empty row behind.
+        items = items.filter(function (x) { return x.id !== id; });
+        save();
       }
       if (then) then(v);
       render();
@@ -1169,9 +1174,35 @@
 
       if (e.key === "Enter") {
         e.preventDefault();
-        commit(true, function (v) {
-          if (v) pendingEdit = newRowAfter(t);   // keep typing on a fresh line
-        });
+        /* Deliberately not going through render(). Rebuilding the whole list
+           destroys this row and focusing the replacement afterwards happens
+           outside the keypress, which iOS refuses - the new line appeared but
+           the keyboard did not, so you had to tap it. Splicing the row in by
+           hand keeps focus inside the original gesture. */
+        var v = input.value.trim();
+        closed = true;
+        var host = li.parentNode;
+
+        if (v) {
+          t.text = v;
+          txt.textContent = v;
+          txt.classList.remove("blank");
+          if (input.parentNode) input.parentNode.replaceChild(txt, input);
+        } else {
+          items = items.filter(function (x) { return x.id !== id; });
+          li.remove();
+        }
+        save();
+
+        if (v && host) {
+          var freshId = newRowAfter(t);
+          var fresh = taskById(freshId);
+          if (fresh) {
+            var newLi = row(fresh);
+            host.insertBefore(newLi, li.nextSibling);
+            edit(newLi, newLi.querySelector(".txt"), freshId);
+          }
+        }
         return;
       }
       if (e.key === "Escape") { commit(false); return; }
@@ -1208,7 +1239,7 @@
       pos: (typeof t.pos === "number" ? t.pos : 0) + 0.5
     };
     items.push(fresh);
-    save();
+    // no save() here: an untyped line should never reach storage or sync
     return fresh.id;
   }
 
@@ -1224,8 +1255,7 @@
     };
     lane.assign(fresh);          // the column decides urgency / day / space
     items.push(fresh);
-    save();
-    pendingEdit = fresh.id;
+    pendingEdit = fresh.id;     // saved only once it has text
     render();
   }
 
