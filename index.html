@@ -492,6 +492,33 @@
   .cols.four .txt { word-break: normal; overflow-wrap: break-word; }
   @media (max-width: 700px) { body.wide .app { width:100%; height:100%; border-radius:0; } }
 </style>
+<style>
+  .spacetog {
+    display:flex; gap:2px; margin-right:8px;
+    background:rgba(127,127,127,.12); border-radius:8px; padding:2px;
+  }
+  .spacetog button {
+    border:none; background:transparent; color:var(--muted); font:inherit;
+    font-size:11px; letter-spacing:.06em; text-transform:uppercase;
+    padding:5px 10px; border-radius:6px; cursor:pointer;
+    transition:background .2s, color .2s;
+  }
+  .spacetog button:hover { color:var(--text); }
+  .spacetog button.on { background:rgba(127,127,127,.22); color:var(--text); }
+
+  .cols.one { grid-template-columns: 1fr; }
+  .cols.one .txt { font-size: 14.5px; }
+
+  /* Notes have no urgency and no dates, so those controls go away entirely
+     rather than sitting there doing nothing. */
+  body.space-notes .viewtog,
+  body.space-notes .urg,
+  body.space-notes .move { display:none; }
+
+  @media (max-width: 700px) {
+    .spacetog button { padding:5px 7px; font-size:10px; letter-spacing:.02em; }
+  }
+</style>
 </head>
 <body>
 
@@ -509,6 +536,11 @@
       <div class="date" id="date"></div>
     </div>
     <div class="actions">
+      <div class="spacetog" id="spacetog">
+        <button data-space="work" type="button">Work</button>
+        <button data-space="personal" type="button">Personal</button>
+        <button data-space="notes" type="button">Notes</button>
+      </div>
       <div class="viewtog" id="viewtog">
         <button data-view="priority" type="button">Priority</button>
         <button data-view="day" type="button">Day</button>
@@ -608,29 +640,49 @@
     { key: "later",    title: "Later",     hot: false, empty: "Nothing here yet." }
   ];
 
+  /* Three separate spaces. Work and Personal are the same interface with
+     different tasks; Notes is a single column with no urgency or dates,
+     because neither means much for a jotted note. */
+  var SPACEKEY = "todo.space.v1";
+  var space = "personal";
+  try {
+    var s0 = localStorage.getItem(SPACEKEY);
+    if (s0 === "work" || s0 === "notes" || s0 === "personal") space = s0;
+  } catch (e) {}
+
+  function inSpace(t) { return (t.space || "personal") === space; }
+
   function laneDefs() {
+    if (space === "notes") {
+      return [
+        { title: "Notes", hot: false, empty: "Nothing jotted yet.", one: true,
+          match:  function (t) { return inSpace(t); },
+          assign: function (t) { t.space = "notes"; } }
+      ];
+    }
     if (view === "day") {
       return DAY_COLS.map(function (c) {
         return {
           title: c.title, hot: c.hot, empty: c.empty,
-          match:  function (t) { return bucketOf(t) === c.key; },
-          assign: function (t) { t.due = dueForBucket(c.key); }
+          match:  function (t) { return inSpace(t) && bucketOf(t) === c.key; },
+          assign: function (t) { t.due = dueForBucket(c.key); t.space = space; }
         };
       });
     }
     return [
       { title: "Urgent", hot: true, empty: "Nothing urgent.",
-        match:  function (t) { return !!t.urgent; },
-        assign: function (t) { t.urgent = true; } },
+        match:  function (t) { return inSpace(t) && !!t.urgent; },
+        assign: function (t) { t.urgent = true; t.space = space; } },
       { title: "Not urgent", hot: false, empty: "Nothing here yet.",
-        match:  function (t) { return !t.urgent; },
-        assign: function (t) { t.urgent = false; } }
+        match:  function (t) { return inSpace(t) && !t.urgent; },
+        assign: function (t) { t.urgent = false; t.space = space; } }
     ];
   }
 
   function buildColumns() {
     $cols.textContent = "";
-    $cols.className = "cols" + (view === "day" ? " four" : "");
+    $cols.className = "cols" + (space === "notes" ? " one" : (view === "day" ? " four" : ""));
+    document.body.classList.toggle("space-notes", space === "notes");
     document.body.classList.toggle("view-day", view === "day");
     lanes = laneDefs().map(function (d) {
       var sec  = document.createElement("section");
@@ -700,6 +752,7 @@
       if (!x.created) { x.created = last || t; dirty = true; }
       if (typeof x.urgent !== "boolean") { x.urgent = false; dirty = true; }
       if (typeof x.pos !== "number") { x.pos = i; dirty = true; }
+      if (!x.space) { x.space = "personal"; dirty = true; }
     });
 
     if (last && last !== t) {
@@ -801,6 +854,7 @@
   }
 
   function render() {
+    $new.placeholder = (space === "notes") ? "Jot a note..." : "What needs doing?";
     buildColumns();
     lanes.forEach(function (lane) {
       var mine  = items.filter(lane.match);
@@ -826,9 +880,10 @@
       lane.n.textContent = mine.filter(function (t) { return !t.done; }).length;
     });
 
-    var left = items.filter(function (t) { return !t.done; }).length;
-    $count.textContent = left + " left";
-    $clear.hidden = !items.some(function (t) { return t.done; });
+    var mineAll = items.filter(inSpace);
+    var left = mineAll.filter(function (t) { return !t.done; }).length;
+    $count.textContent = left + (space === "notes" ? (left === 1 ? " note" : " notes") : " left");
+    $clear.hidden = !mineAll.some(function (t) { return t.done; });
   }
 
   /* ── actions ── */
@@ -837,7 +892,7 @@
     if (!text) return;
     items.unshift({
       id: Date.now() + "" + Math.round(Math.random() * 1e4),
-      text: text, done: false, created: today(), urgent: !!urgent, due: dayStamp(0),
+      text: text, done: false, created: today(), urgent: !!urgent, due: dayStamp(0), space: space,
       pos: (items.length ? Math.min.apply(null, items.map(function (t) {
              return typeof t.pos === "number" ? t.pos : 0; })) : 0) - 1
     });
@@ -1000,6 +1055,27 @@
       try { localStorage.setItem(WIDEKEY, wide ? "1" : "0"); } catch (e) {}
       paint();
     });
+  })();
+
+  /* work / personal / notes switch */
+  (function () {
+    var box = document.getElementById("spacetog");
+    if (!box) return;
+    function paint() {
+      Array.prototype.forEach.call(box.querySelectorAll("button"), function (b) {
+        b.classList.toggle("on", b.dataset.space === space);
+      });
+    }
+    Array.prototype.forEach.call(box.querySelectorAll("button"), function (b) {
+      b.addEventListener("click", function () {
+        if (space === b.dataset.space) return;
+        space = b.dataset.space;
+        try { localStorage.setItem(SPACEKEY, space); } catch (e) {}
+        paint();
+        render();
+      });
+    });
+    paint();
   })();
 
   /* view switch */
