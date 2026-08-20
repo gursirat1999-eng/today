@@ -6,7 +6,7 @@
    Now the network wins whenever it's reachable and the cache is only a
    fallback, so the app is still fully usable offline. */
 
-const CACHE = "today-v2";
+const CACHE = "today-v3";
 const SHELL = [
   "./",
   "./index.html",

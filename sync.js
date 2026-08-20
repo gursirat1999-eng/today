@@ -52,8 +52,26 @@
   var pushTimer = null;
   var applying = false;       // guard: don't echo a remote change back out
 
+  /* On the very first pass the local list is whatever this device happened
+     to have lying around, which may be stale or empty. Marking it "changed
+     just now" made it beat the server for every matching id, so a stale
+     device could revert good data. First pass is therefore recorded as very
+     old; only genuine edits made after load carry a real timestamp. */
+  var firstStamp = true;
+
+  /* Last line of defence. A whole-document write can erase everything, so a
+     push that would drop most of what the server holds is refused outright.
+     Losing an intended bulk delete is recoverable; losing the list is not. */
+  var lastRemoteCount = null;
+
+  function wouldDestroy(payload) {
+    if (lastRemoteCount === null || lastRemoteCount < 8) return false;
+    var n = (payload.items || []).length;
+    return n === 0 || n < lastRemoteCount * 0.4;
+  }
+
   function stamp(items) {
-    var now = Date.now(), seen = Object.create(null), changed = false;
+    var now = firstStamp ? 1 : Date.now(), seen = Object.create(null), changed = false;
     items.forEach(function (t) {
       seen[t.id] = true;
       var json = JSON.stringify(t);
@@ -65,6 +83,7 @@
     Object.keys(shadow).forEach(function (id) {
       if (!seen[id]) { delete shadow[id]; tombs[id] = now; changed = true; }
     });
+    firstStamp = false;
     return changed;
   }
 
@@ -127,7 +146,16 @@
   function schedulePush() {
     if (!remoteWrite || !ready) return;
     clearTimeout(pushTimer);
-    pushTimer = setTimeout(function () { remoteWrite(localPayload()); }, 600);
+    pushTimer = setTimeout(function () {
+      var payload = localPayload();
+      if (wouldDestroy(payload)) {
+        console.warn("[sync] refused a push that would drop " +
+          (lastRemoteCount - payload.items.length) + " of " + lastRemoteCount + " tasks");
+        status("sync paused - reload", "warn");
+        return;
+      }
+      remoteWrite(payload);
+    }, 600);
   }
 
   Promise.all([
@@ -264,6 +292,7 @@
       dbMod.onSnapshot(ref, function (snap) {
         var remote = snap.exists() ? snap.data() : { items: [], tombs: {} };
         ready = true;                 // server state is now known; pushing is safe
+        lastRemoteCount = (remote.items || []).length;
         var merged = merge(remote);
         var current = bridge.read();
         if (JSON.stringify(current) !== JSON.stringify(merged)) {
