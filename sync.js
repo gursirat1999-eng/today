@@ -44,6 +44,11 @@
   var TOMB_TTL = 30 * 24 * 3600 * 1000;   // forget deletions after a month
 
   var remoteWrite = null;     // set once Firestore is ready
+  /* Nothing may be pushed until the first snapshot has been merged. setDoc
+     replaces the whole document, so an early push would overwrite the server
+     with whatever this device happened to hold - which is how a device with
+     cleared storage wiped tasks created elsewhere. */
+  var ready = false;
   var pushTimer = null;
   var applying = false;       // guard: don't echo a remote change back out
 
@@ -120,7 +125,7 @@
   }
 
   function schedulePush() {
-    if (!remoteWrite) return;
+    if (!remoteWrite || !ready) return;
     clearTimeout(pushTimer);
     pushTimer = setTimeout(function () { remoteWrite(localPayload()); }, 600);
   }
@@ -258,6 +263,7 @@
 
       dbMod.onSnapshot(ref, function (snap) {
         var remote = snap.exists() ? snap.data() : { items: [], tombs: {} };
+        ready = true;                 // server state is now known; pushing is safe
         var merged = merge(remote);
         var current = bridge.read();
         if (JSON.stringify(current) !== JSON.stringify(merged)) {

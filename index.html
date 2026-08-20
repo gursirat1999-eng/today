@@ -1,20 +1,6 @@
 <!DOCTYPE html>
 <html lang="en" data-theme="dark">
-<head><script>
-/* One-time migration: copies the tasks from the local PC app into this hosted
-   copy. Runs once ever — the flag is set even when there's nothing to copy, so
-   it can never overwrite real data later. */
-(function () {
-  var SEED = [{"id":"17861867081283783","text":"insta 360 video edit","done":false,"created":"2026-08-08","urgent":false},{"id":"1786186211313411","text":"haircut","done":false,"created":"2026-08-08","urgent":true},{"id":"17861831697429271","text":"connect openart ai with claude","done":false,"created":"2026-08-08","urgent":false},{"id":"17861830402972043","text":"make icloud space","done":false,"created":"2026-08-08","urgent":false},{"id":"1786182524673117","text":"laundry","done":false,"created":"2026-08-08","urgent":false},{"id":"17861823556927593","text":"go to sport chek to buy the shorts and ship em to home, try bmx bike","done":false,"created":"2026-08-08","urgent":false},{"id":"17861823135307547","text":"call sunglass hut for discount code","done":false,"created":"2026-08-08","urgent":false},{"id":"17861822082765431","text":"Apply for intact insurance as harry, change resume, apply for toronto position","done":false,"created":"2026-08-08","urgent":false},{"id":"17861821808868586","text":"Book Doctor's appointment for accident","done":false,"created":"2026-08-08","urgent":false},{"id":"17861820402947632","text":"Cook chicken","done":true,"created":"2026-08-08","urgent":true},{"id":"17861811174223262","text":"Pickup Bolt and tire from Indian motorcycle","done":false,"created":"2026-08-08","urgent":false},{"id":"17861820629052667","text":"clean air filter","done":false,"created":"2026-08-08","urgent":true},{"id":"17861825370109689","text":"book physio appointment","done":false,"created":"2026-08-08","urgent":true},{"id":"17861801791554173","text":"Visit Bobby uncle","done":false,"created":"2026-08-08","urgent":true},{"id":"17861796890847859","text":"Intact insurance renewal, call them and ask about car insurance too","done":false,"created":"2026-08-08","urgent":true},{"id":"17861798939363281","text":"Call TD insurance and ask about adding motocycle","done":false,"created":"2026-08-08","urgent":true},{"id":"17861810632961411","text":"Youtube - kids channel","done":false,"created":"2026-08-08","urgent":true},{"id":"17861804300209620","text":"Fill out paperwork with army, Ask Lee for DND404","done":false,"created":"2026-08-08","urgent":true},{"id":"17861805534185333","text":"Postpone BMQ","done":false,"created":"2026-08-08","urgent":true},{"id":"17861799135006274","text":"Replace motorcycle wheel","done":false,"created":"2026-08-08","urgent":false}];
-  try {
-    if (localStorage.getItem("todo.seeded.v1")) return;
-    localStorage.setItem("todo.seeded.v1", "1");
-    var cur = localStorage.getItem("todo.items.v1");
-    var empty = !cur || cur === "[]" || (JSON.parse(cur) || []).length === 0;
-    if (empty) localStorage.setItem("todo.items.v1", JSON.stringify(SEED));
-  } catch (e) {}
-})();
-</script><meta charset="utf-8">
+<head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
