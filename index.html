@@ -640,6 +640,7 @@
       <button data-f="done">Done</button>
     </div>
     <button class="undo" id="undo" type="button" title="Undo (Ctrl+Z)" hidden>Undo</button>
+      <button class="undo" id="backups" type="button" title="Local snapshots and download">Backups</button>
       <button class="clear" id="clear" hidden>Clear done</button>
   </footer>
 </main>
@@ -845,6 +846,7 @@
     }
     lastSnap = cur;
     try { localStorage.setItem(KEY, cur); } catch (e) {}
+    pushBackup(cur);
     if (bridge.onLocalChange && !bridge._quiet) bridge.onLocalChange(items);
   }
 
@@ -1362,6 +1364,8 @@
   })();
 
   (function () {
+    var bk = document.getElementById("backups");
+    if (bk) bk.addEventListener("click", function (e) { e.stopPropagation(); backupMenu(bk); });
     var b = document.getElementById("undo");
     if (b) b.addEventListener("click", undo);
     document.addEventListener("keydown", function (e) {
@@ -1373,6 +1377,88 @@
       undo();
     });
   })();
+
+  /* Rolling local snapshots. Sync can go wrong - it already has - and a
+     whole-document write can erase the lot, so every device keeps its own
+     history that no sync can touch: the last ten states, plus the first state
+     seen on each of the last seven days so a slow-motion loss is still
+     recoverable days later. */
+  var BK_RECENT = "todo.backups.v1", BK_DAILY = "todo.daily.v1";
+
+  function readList(key) {
+    try { return JSON.parse(localStorage.getItem(key) || "[]"); } catch (e) { return []; }
+  }
+
+  function pushBackup(json) {
+    var count;
+    try { count = JSON.parse(json).length; } catch (e) { return; }
+    if (!count) return;                       // never snapshot an empty list over a good one
+
+    var rec = readList(BK_RECENT);
+    if (rec.length && rec[rec.length - 1].json === json) return;
+    rec.push({ t: Date.now(), n: count, json: json });
+    while (rec.length > 10) rec.shift();
+
+    var day = today();
+    var dly = readList(BK_DAILY);
+    if (!dly.some(function (b) { return b.day === day; })) {
+      dly.push({ t: Date.now(), day: day, n: count, json: json });
+      while (dly.length > 7) dly.shift();
+    }
+    try {
+      localStorage.setItem(BK_RECENT, JSON.stringify(rec));
+      localStorage.setItem(BK_DAILY, JSON.stringify(dly));
+    } catch (e) {}                            // quota: history is best-effort
+  }
+
+  function backupMenu(anchorEl) {
+    closeMenu();
+    var m = document.createElement("div");
+    m.className = "rowmenu";
+    m.addEventListener("click", function (e) { e.stopPropagation(); });
+
+    var all = readList(BK_DAILY).concat(readList(BK_RECENT));
+    all.sort(function (a, b) { return b.t - a.t; });
+    var seen = {}, list = [];
+    all.forEach(function (b) { if (!seen[b.json]) { seen[b.json] = 1; list.push(b); } });
+
+    function opt(label, fn) {
+      var btn = document.createElement("button");
+      btn.type = "button"; btn.textContent = label;
+      btn.addEventListener("click", function () { closeMenu(); fn(); });
+      m.appendChild(btn);
+    }
+
+    if (!list.length) opt("No snapshots yet", function () {});
+    list.slice(0, 10).forEach(function (b) {
+      var d = new Date(b.t);
+      var when = d.toLocaleDateString(undefined, { month: "short", day: "numeric" }) + " " +
+                 d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+      opt(when + "  -  " + b.n + " tasks", function () {
+        if (!window.confirm("Restore the list as it was on " + when + "? (" + b.n + " tasks)")) return;
+        items = JSON.parse(b.json);
+        save();
+        render();
+      });
+    });
+
+    opt("Download a copy", function () {
+      var blob = new Blob([localStorage.getItem(KEY) || "[]"], { type: "application/json" });
+      var a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = "today-backup-" + today() + ".json";
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(function () { URL.revokeObjectURL(a.href); }, 2000);
+    });
+
+    document.body.appendChild(m);
+    var r = anchorEl.getBoundingClientRect();
+    var top = r.top - m.offsetHeight - 6;
+    if (top < 8) top = r.bottom + 6;
+    m.style.top = Math.max(8, top) + "px";
+    m.style.left = Math.max(8, Math.min(r.left, window.innerWidth - m.offsetWidth - 8)) + "px";
+    openMenu = m;
+  }
 
   /* work / personal / notes switch */
   (function () {
